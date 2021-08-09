@@ -5,22 +5,23 @@
 
 import numpy as np
 import math
-
 import warnings
 from enum import Enum
-from tvtk.util import ctf
+# from tvtk.util import ctf
 
 from skimage import data, io
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+class OutputType(Enum):
+    TIF = 0
+    PNG = 1
+    JPG = 2
 
-
-def processThread(self):
+def processThread(self, thresholds, ):
     # Preprocessing and setup
-    threshCh1 = int(self.ch1ThreshLE.text())
-    threshCh2 = int(self.ch2ThreshLE.text())
+    # threshCh1 = int(self.ch1ThreshLE.text())
+    # threshCh2 = int(self.ch2ThreshLE.text())
+    threshCh1 = thresholds[0]
+    threshCh2 = thresholds[1]
 
     penFactor = int(self.thetaLE.text())
     percToInclude = int(self.percentageLE.text()) / 100.0
@@ -69,13 +70,13 @@ def processThread(self):
         ch2Stack = np.amax(ch2Stack, axis=3)
 
         # visualization
-        if (self.visualizeInputFilesCheckBox.isChecked()):
+        """if (self.visualizeInputFilesCheckBox.isChecked()):
             self.mayavi_input3D.show()
 
             self.mayavi_input3D.visualization = VisualizationInput()
             self.mayavi_input3D.visualization.fullStack3D = ch1Stack / 4 + (np.ceil(ch2Stack / 4)) * 64
 
-            self.mayavi_input3D.refresh()
+            self.mayavi_input3D.refresh()"""
 
         isStack = True
 
@@ -453,6 +454,6 @@ def processThread(self):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print_hi('PyCharm')
+    print('PyCharm')
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
