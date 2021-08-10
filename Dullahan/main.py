@@ -16,22 +16,27 @@ class OutputType(Enum):
     PNG = 1
     JPG = 2
 
-def processThread(self, thresholds, ):
+def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage):
     # Preprocessing and setup
     # threshCh1 = int(self.ch1ThreshLE.text())
     # threshCh2 = int(self.ch2ThreshLE.text())
+    #All of the self.   .text() objects are inherited from the GUI classes. They need to be replaced currently with arguement parameters for the function
+    # or from a new function to extract those parameters from a text file
     threshCh1 = thresholds[0]
     threshCh2 = thresholds[1]
-
-    penFactor = int(self.thetaLE.text())
-    percToInclude = int(self.percentageLE.text()) / 100.0
+    penFactor = value
+    percToInclude = percentage/100
+    #penFactor = int(self.thetaLE.text())
+    #percToInclude = int(self.percentageLE.text()) / 100.0
 
     print("Process with values:\nThres Ch1: {}\nThres Ch2: {}".format(threshCh1, threshCh2))
     print("Penalization factor (theta): {}\nPercentage to include: {}".format(penFactor, percToInclude * 100))
-
+    #self.channel1_FileLE is an inherited object from PyQt5. This is the object used for the widgets in the gui. The file name will be the path to the image
     # contains values 0-255
-    ch1Stack = io.imread(self.channel1_FileLE.text())
-    ch2Stack = io.imread(self.channel2_FileLE.text())
+    #ch1Stack = io.imread(self.channel1_FileLE.text())
+    #ch2Stack = io.imread(self.channel2_FileLE.text())
+    ch1Stack = io.imread(ch1filepath)
+    ch2Stack = io.imread(ch2filepath)
 
     maxIntensity1 = np.max(ch1Stack)
     maxIntensity2 = np.max(ch2Stack)
@@ -90,14 +95,14 @@ def processThread(self, thresholds, ):
         ch1Stack = ch1Stack[:, :, 0:3]
         ch2Stack = ch2Stack[:, :, 0:3]
 
-        # visualization
+        '''# visualization
         if (self.visualizeInputFilesCheckBox.isChecked()):
             # self.mainLayout.setColumnMinimumWidth(1,490)
             self.static_canvasInput2D.show()
             self._static_ax.clear()
             self._static_ax.imshow(ch1Stack + ch2Stack)
             self._static_ax.axis('off')
-            self._static_ax.figure.canvas.draw()
+            self._static_ax.figure.canvas.draw()'''
 
         originalShape = ch1Stack.shape
 
@@ -170,7 +175,6 @@ def processThread(self, thresholds, ):
 
     print("\nB0 = {}  B1 = {}".format(B0, B1))
 
-    self.progressBar.setValue(25)
 
     #####################
     # CALCULATE p0 and p1
@@ -209,12 +213,7 @@ def processThread(self, thresholds, ):
     reducedCh1Stack = filteredCh1Stack[overlappingSection > 0]
     reducedCh2Stack = filteredCh2Stack[overlappingSection > 0]
     print("\nOverlapping section: ", overlappingSection)
-    print("\nFull size was {} reduced colocalized size is {}. Remaining percentage {}%".format(filteredCh1Stack.shape,
-                                                                                               reducedCh1Stack.shape,
-                                                                                               reducedCh1Stack.shape[
-                                                                                                   0] /
-                                                                                               filteredCh1Stack.shape[
-                                                                                                   0] * 100))
+    print("\nFull size was {} reduced colocalized size is {}. Remaining percentage {}%".format(filteredCh1Stack.shape, reducedCh1Stack.shape, reducedCh1Stack.shape[0]/filteredCh1Stack.shape[0] * 100))
 
     totalVoxelCount = reducedCh2Stack.shape[0]
     print("Total number of voxels: ", totalVoxelCount)
@@ -267,7 +266,6 @@ def processThread(self, thresholds, ):
     #            fracY = np.clip(fracY, 0, 1)
     #            colorMapFrequencyY[int(fracY*Imax)] += 1
     #
-    self.progressBar.setValue(40)
 
     cumulativeTotalX = 0
     cumulativeTotalY = 0
@@ -293,7 +291,6 @@ def processThread(self, thresholds, ):
     print("\nMax X: {} / {} ({}%)".format(cumulativeTotalX, totalVoxelCount, cumulativeTotalX / totalVoxelCount * 100));
     print("Max Y: {} / {} ({}%)".format(cumulativeTotalY, totalVoxelCount, cumulativeTotalY / totalVoxelCount * 100));
     print("X_Max: {}  Y_Max: {}".format(xMax, yMax));
-    self.progressBar.setValue(50)
 
     #####################
     # CALCULATE distance threshold (variant of vinary search)
@@ -339,25 +336,21 @@ def processThread(self, thresholds, ):
         elif (distanceCount / totalVoxelCount < percToInclude):
             dMin = int(dThresh) + 1
         else:
-            dMax = int(dThresh) - 1;
+            dMax = int(dThresh) - 1
 
         if (dMin == dMax):
             break
 
-        self.progressBar.setValue(self.progressBar.value() + 1)
-
     print("\n\nDistance threshold for {}% = {} (within {} times)".format(percToInclude * 100, dThresh, tryCount));
 
     if (xMax != -1):
-        p1[0] = xMax;
-        p1[1] = B1 * p1[0] + B0;
+        p1[0] = xMax
+        p1[1] = B1 * p1[0] + B0
     else:
-        p1[1] = yMax;
-        p1[0] = (p1[1] - B0) / B1;
+        p1[1] = yMax
+        p1[0] = (p1[1] - B0) / B1
 
-    print("p_max for {}% = {}".format(percToInclude * 100, p1));
-
-    self.progressBar.setValue(60)
+    print("p_max for {}% = {}".format(percToInclude * 100, p1))
 
     #####################
     # Generate Ci greyscale map
@@ -366,31 +359,23 @@ def processThread(self, thresholds, ):
 
     filteredCh1Stack[overlappingSection == 0] = 0
     filteredCh2Stack[overlappingSection == 0] = 0
-    self.progressBar.setValue(61)
 
     output = np.zeros_like(filteredCh1Stack)
     qMat = np.stack((filteredCh1Stack, filteredCh2Stack)) / Imax
-    self.progressBar.setValue(62)
     kMat = ((p1[1] - p0[1]) * (qMat[0] - p0[0]) - (p1[0] - p0[0]) * (qMat[1] - p0[1])) / (
                 (p1[1] - p0[1]) * (p1[1] - p0[1]) + (p1[0] - p0[0]) * (p1[0] - p0[0]))
-    self.progressBar.setValue(63)
     xMat = qMat[0] - kMat * (p1[1] - p0[1])
-    self.progressBar.setValue(64)
     dMat = ((abs((p1[1] - p0[1]) * qMat[0] - (p1[0] - p0[0]) * qMat[1] + p1[0] * p0[1] - p1[1] * p0[0])) / math.sqrt(
         (p1[1] - p0[1]) * (p1[1] - p0[1]) + (p1[0] - p0[0]) * (p1[0] - p0[0])))
 
-    self.progressBar.setValue(65)
 
     condition = np.logical_and((dMat * (p1[0] - p0[0]) * math.tan(theta) + p0[0] < xMat), (xMat < p1[0]))
     output[condition] = ((xMat[condition] - p0[0]) / (p1[0] - p0[0]) - dMat[condition] * math.tan(theta)) * Imax
-    self.progressBar.setValue(66)
     condition = xMat >= p1[0]
     output[condition] = np.clip(((1 - dMat[condition] * math.tan(theta)) * Imax), 0, 255)
     self.progressBar.setValue(68)
     condition = np.logical_or((xMat <= dMat * (p1[0] - p0[0]) * math.tan(theta) + p0[0]), (dMat > dThresh / Imax))
     output[condition] = 0
-
-    self.progressBar.setValue(70)
 
     print("\nFINISHED processing")
 
@@ -405,7 +390,8 @@ def processThread(self, thresholds, ):
         output = output.reshape(originalShape)
 
     print("Output shape: ", output.shape)
-    self.progressBar.setValue(80)
+
+    #The output section needs to be evaluated based on the structuring of the system output
 
     outputType = self.outputFileTypeComboBox.currentIndex()
 
