@@ -5,7 +5,7 @@
 
 import numpy as np
 import math
-import warnings
+#import warnings
 from enum import Enum
 # from tvtk.util import ctf
 
@@ -16,7 +16,7 @@ class OutputType(Enum):
     PNG = 1
     JPG = 2
 
-def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage):
+def processThread(thresholds, ch1filepath, ch2filepath, value, percentage):
     # Preprocessing and setup
     # threshCh1 = int(self.ch1ThreshLE.text())
     # threshCh2 = int(self.ch2ThreshLE.text())
@@ -52,14 +52,12 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
     print("\nch1Stack.shape", ch1Stack.shape)
     print("ch2Stack.shape", ch2Stack.shape)
 
-    self.progressBar.setValue(5)
-
-    isStack = True  # 3D stack if True, otherwise single slice 2D image
+    ''' isStack = True  # 3D stack if True, otherwise single slice 2D image
     if (ch1Stack.shape != ch2Stack.shape):
         print("\nERROR: stack shapes are not the same, cannot continue.")
         self.showErrorDialog(
             "Stack shapes are not the same, cannot continue.\n{} vs {}".format(ch1Stack.shape, ch2Stack.shape))
-        return
+        return'''
 
     print("Image Stack dimensions: ", len(ch1Stack.shape))
 
@@ -115,7 +113,6 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
         print("ch1Stack.shape", ch1Stack.shape)
         print("ch2Stack.shape", ch2Stack.shape)
 
-    self.progressBar.setValue(10)
     #################################
     # Calculate RACC
 
@@ -154,7 +151,6 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
     varXY = covariance[0, 1]
 
     print("\nCovariance(xx): {}\nCovariance(yy): {}\nCovariance(xy): {}".format(varXX, varYY, varXY))
-    self.progressBar.setValue(20)
 
     #####################
     # CALCULATE B0 and B1
@@ -199,8 +195,6 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
         p1[1] = Imax * B1 + B0
 
     print("\nP0 = {}  P1 = {}".format(p0, p1))
-
-    self.progressBar.setValue(30)
 
     #####################
     # CALCULATE xMax
@@ -373,12 +367,18 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
     output[condition] = ((xMat[condition] - p0[0]) / (p1[0] - p0[0]) - dMat[condition] * math.tan(theta)) * Imax
     condition = xMat >= p1[0]
     output[condition] = np.clip(((1 - dMat[condition] * math.tan(theta)) * Imax), 0, 255)
-    self.progressBar.setValue(68)
     condition = np.logical_or((xMat <= dMat * (p1[0] - p0[0]) * math.tan(theta) + p0[0]), (dMat > dThresh / Imax))
     output[condition] = 0
 
-    print("\nFINISHED processing")
+    #This is for the colour mapping while the GUI is removed:
+    colormap = io.imread("magmaLine.png").astype(np.uint8)[0, :, 0:3]
+    colormap[0] = np.zeros(3)
+    grayColormap = output.reshape(ch1Stack.shape)
+    output = colormap[output]
+    output = output.reshape(originalShape)
 
+    print("\nFINISHED processing")
+    '''
     if (self.grayscaleOutput.isChecked()):
         print("\nOutput in Grayscale")
         output = output.reshape(ch1Stack.shape)
@@ -392,23 +392,25 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
     print("Output shape: ", output.shape)
 
     #The output section needs to be evaluated based on the structuring of the system output
+    '''
 
-    outputType = self.outputFileTypeComboBox.currentIndex()
+    #outputType = self.outputFileTypeComboBox.currentIndex()
+    outputType = 0
 
     if (outputType == OutputType.TIF.value):
         fileName = ""
-        if isStack:
+        '''if isStack:
             fileName = self.saveFileDialog("3D Image Stack (*.TIFF)")
         else:
             fileName = self.saveFileDialog("2D image (*.TIFF)")
-
+        '''
         if fileName == "" or fileName == None:
             fileName = "output.tif"
         elif not (fileName.lower().endswith("tiff") or fileName.lower().endswith("tif")):
             fileName += ".tif"
         io.imsave("{}".format(fileName), output)
         print("\nFINISHED writing to '{}'".format(fileName))
-
+    '''
     if (outputType == OutputType.PNG.value or outputType == OutputType.JPG.value):
         if isStack:
             fileName = self.saveFileDialog("Image Stack (separate slices) (*.{})".format(OutputType(outputType).name))
@@ -434,12 +436,12 @@ def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage)
 
             io.imsave(str("{}.{}").format(fileName, OutputType(outputType).name), output)
             print("\nFINISHED writing image to '{}.{}'".format(fileName, OutputType(outputType).name))
-
+        '''
 
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print('PyCharm')
+    processThread(thresholds=[5,5], ch1filepath="./Cell3Red.tif", ch2filepath="./Cell3Green.tif", value=45, percentage=99)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
