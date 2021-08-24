@@ -8,13 +8,35 @@ import math
 #import warnings
 from enum import Enum
 # from tvtk.util import ctf
-
+from mayavi import mlab
+from mayavi.core.ui.api import MayaviScene, MlabSceneModel, \
+        SceneEditor
+from tvtk.util import ctf
 from skimage import data, io
+
+from PyQt5.QtCore import (Qt, QThread, QObject, pyqtSignal, pyqtSlot)
+from PyQt5 import QtGui
+from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox,
+        QDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+        QProgressBar, QPushButton,  QSlider, QStyleFactory, QWidget,
+        QFileDialog, QMessageBox, QVBoxLayout)
+
+from traits.api import HasTraits, Instance, on_trait_change, Range
+from traitsui.api import View, Item, HGroup
 
 class OutputType(Enum):
     TIF = 0
     PNG = 1
     JPG = 2
+
+def settingScraper():
+    print("Hi")
+
+def paramGUI():
+    #Must have parameters configured here using a GUI. The settings should be able to be logged. Take dictionary for filepaths from .json, multiple parameter
+    # settings must be options for each sample. The output file name must be an option when first configuring the sample and the parameters should be embedded
+    # in the output name.
+    print("Hi")
 
 def processThread(thresholds, ch1filepath, ch2filepath, value, percentage, timedim):
     # Preprocessing and setup
@@ -462,5 +484,6 @@ def processThread(thresholds, ch1filepath, ch2filepath, value, percentage, timed
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     processThread(thresholds=[5,5], ch1filepath="./Con_3C=0.tif", ch2filepath="./Con_3C=1.tif", value=45, percentage=99, timedim=True)
-
+    #The final function call order will be reading in the sample iters from the .json file, this is followed by the Theta, percentage and
+    #threshold values with a GUI to help threshold selection. After the parameters are set for all iterations and samples then the colocalisation is run
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/

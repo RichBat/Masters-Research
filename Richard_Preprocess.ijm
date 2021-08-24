@@ -90,7 +90,7 @@ for(index = 0; index < list.length; index++)
 			}
 	
 			run("Despeckle", "stack");
-			run("Remove Outliers...", "radius=" + (outlierRadius) + " threshold=50 which=Bright stack");
+			run("Remove Outliers...", "radius=" + (outlierRadius) + " threshold=20 which=Bright stack");
 			run("3D Fill Holes");
 		}
 		print("Name to Concatenate " + concat_name);
