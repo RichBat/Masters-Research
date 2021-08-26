@@ -177,3 +177,424 @@ class MayaviQWidget(QWidget):
         self.ui = self.visualization.edit_traits(parent=self, kind='subpanel').control
         self.layout.addWidget(self.ui)
         self.ui.setParent(self)
+
+
+class RACC(QDialog):
+    def __init__(self, parent=None):
+        super(RACC, self).__init__(parent)
+
+        self.colormap = io.imread("magmaLine.png").astype(np.uint8)[0, :, 0:3]
+        self.colormap[0] = np.zeros(3)
+
+        self.originalPalette = QApplication.palette()
+
+        styleComboBox = QComboBox()
+        styleComboBox.addItems(QStyleFactory.keys())
+        styleName = "Fusion"
+        index = styleComboBox.findText(styleName)
+        if (index != -1):  # -1 for not found
+            styleComboBox.setCurrentIndex(index)
+
+        styleLabel = QLabel("&Style:")
+        styleLabel.setBuddy(styleComboBox)
+
+        self.useStylePaletteCheckBox = QCheckBox("&Use style's standard palette")
+        self.useStylePaletteCheckBox.setChecked(False)
+
+        styleComboBox.activated[str].connect(self.changeStyle)
+        self.useStylePaletteCheckBox.toggled.connect(self.changePalette)
+
+        topLayout = QHBoxLayout()
+        topLayout.addWidget(styleLabel)
+        topLayout.addWidget(styleComboBox)
+        topLayout.addStretch(1)
+        topLayout.addWidget(self.useStylePaletteCheckBox)
+
+        self.createFileSelectGroupBox()
+        self.createParameterGroupBox()
+        self.createOutputSettingsGroup()
+
+        processButton = QPushButton("Preview")
+        processButton.setDefault(True)
+        processButton.clicked.connect(self.preview)
+        processButton.setFixedHeight(40)
+
+        self.progressBar = QProgressBar()
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+
+        self.mayavi_input3D = MayaviQWidget(self)
+        self.mayavi_output3D = MayaviQWidget(self)
+
+        self.static_canvasInput2D = FigureCanvas(Figure(frameon=False, tight_layout=True))
+        # self.addToolBar(NavigationToolbar(self.mayavi_input3D, self))
+        self._static_ax = self.static_canvasInput2D.figure.add_axes([0, 0, 1, 1])
+        self._static_ax.axis('off')
+
+        self.static_canvasOutput2D = FigureCanvas(Figure(frameon=False, tight_layout=True))
+        # self.addToolBar(NavigationToolbar(self.mayavi_input3D, self))
+        self._static_axOutput = self.static_canvasOutput2D.figure.add_axes([0, 0, 1, 1])
+        self._static_axOutput.axis('off')
+
+        self.mainLayout = QGridLayout()
+        self.mainLayout.addLayout(topLayout, 0, 0)
+        self.mainLayout.addWidget(self.fileSelectGroupBox, 1, 0)
+        self.mainLayout.addWidget(self.parameterGroupBox, 2, 0)
+        self.mainLayout.addWidget(self.outputGroupBox, 3, 0)
+        self.mainLayout.addWidget(processButton, 4, 0)
+        self.mainLayout.addWidget(self.progressBar, 5, 0)
+        self.mainLayout.addWidget(self.mayavi_input3D, 0, 1, 6, 1)
+        self.mainLayout.addWidget(self.mayavi_output3D, 0, 2, 6, 1)
+        self.mainLayout.addWidget(self.static_canvasInput2D, 0, 1, 6, 1)
+        self.mainLayout.addWidget(self.static_canvasOutput2D, 0, 2, 6, 1)
+        self.mainLayout.setColumnMinimumWidth(1, 1)
+        self.mainLayout.setColumnMinimumWidth(2, 1)
+        self.mainLayout.setColumnStretch(0, 1)
+        self.mainLayout.setColumnStretch(1, 0)
+        self.mainLayout.setColumnStretch(2, 0)
+        self.mayavi_input3D.hide()
+        self.mayavi_output3D.hide()
+        self.static_canvasInput2D.hide()
+        self.static_canvasOutput2D.hide()
+
+        self.setLayout(self.mainLayout)
+
+        self.setWindowTitle("RACC")
+        self.setWindowIcon(QtGui.QIcon('icon.png'))
+        self.setWindowFlags(QtCore.Qt.Window)
+        self.changeStyle(styleName)
+
+
+    def preview(self):
+
+        if (self.visualizeInputFilesCheckBox.isChecked()):
+            self.mainLayout.setColumnMinimumWidth(1, 490)
+            self.mainLayout.setColumnStretch(1, 2)
+        else:
+            self.mainLayout.setColumnMinimumWidth(1, 1)
+            self.mainLayout.setColumnStretch(1, 0)
+
+        self.mayavi_input3D.hide()
+        self.mayavi_output3D.hide()
+        self.static_canvasInput2D.hide()
+        self.static_canvasOutput2D.hide()
+
+        ch1Stack = io.imread(self.channel1_FileLE.text())
+        ch2Stack = io.imread(self.channel2_FileLE.text())
+
+        threshCh1 = int(self.ch1ThreshLE.text())
+        threshCh2 = int(self.ch2ThreshLE.text())
+
+
+        if (len(ch1Stack.shape) == 4):  # assuming (slices,x,y,RGB/RGBA)
+            # remove alpha channel if exists
+            ch1Stack = ch1Stack[:, :, :, 0:3]
+            ch2Stack = ch2Stack[:, :, :, 0:3]
+
+            ch1Stack = np.amax(ch1Stack, axis=3)
+            ch2Stack = np.amax(ch2Stack, axis=3)
+
+            valuesAboveThreshCh1 = ch1Stack[np.where(ch1Stack >= threshCh1)]
+            valuesAboveThreshCh2 = ch2Stack[np.where(ch2Stack >= threshCh2)]
+
+            filteredCh1Stack = np.copy(ch1Stack)
+            filteredCh2Stack = np.copy(ch2Stack)
+            filteredCh1Stack[filteredCh1Stack < threshCh1] = 0
+            filteredCh2Stack[filteredCh2Stack < threshCh2] = 0
+
+            # visualization
+            if (self.visualizeInputFilesCheckBox.isChecked()):
+                self.mayavi_input3D.show()
+
+                self.mayavi_input3D.visualization = VisualizationInput()
+                self.mayavi_input3D.visualization.fullStack3D = filteredCh1Stack / 4 + (np.ceil(filteredCh2Stack / 4)) * 64
+
+                self.mayavi_input3D.refresh()
+
+
+        elif (len(ch1Stack.shape) == 3):  # assuming (x, y, RGB/RGBA)
+            # remove alpha channel if exists
+            ch1Stack = ch1Stack[:, :, 0:3]
+            ch2Stack = ch2Stack[:, :, 0:3]
+
+            valuesAboveThreshCh1 = ch1Stack[np.where(ch1Stack >= threshCh1)]
+            valuesAboveThreshCh2 = ch2Stack[np.where(ch2Stack >= threshCh2)]
+            print(valuesAboveThreshCh1.shape)
+            filteredCh1Stack = np.copy(ch1Stack)
+            filteredCh2Stack = np.copy(ch2Stack)
+            filteredCh1Stack[filteredCh1Stack < threshCh1] = 0
+            filteredCh2Stack[filteredCh2Stack < threshCh2] = 0
+
+            # visualization
+            if (self.visualizeInputFilesCheckBox.isChecked()):
+                # self.mainLayout.setColumnMinimumWidth(1,490)
+                self.static_canvasInput2D.show()
+                self._static_ax.clear()
+                self._static_ax.imshow(filteredCh1Stack + filteredCh2Stack)
+                self._static_ax.axis('off')
+                self._static_ax.figure.canvas.draw()
+
+
+    def changeStyle(self, styleName):
+        QApplication.setStyle(QStyleFactory.create(styleName))
+        self.changePalette()
+
+    def changePalette(self):
+        if (self.useStylePaletteCheckBox.isChecked()):
+            QApplication.setPalette(QApplication.style().standardPalette())
+        else:
+            QApplication.setPalette(self.originalPalette)
+
+    def selectFile1(self):
+        returnedText = QFileDialog.getOpenFileName()[0]
+
+        if (returnedText != ""):
+            self.channel1_FileLE.setText(returnedText)
+
+    def selectFile2(self):
+        returnedText = QFileDialog.getOpenFileName()[0]
+
+        if (returnedText != ""):
+            self.channel2_FileLE.setText(returnedText)
+
+    def threshSliderValueChanged1(self):
+        self.ch1ThreshLE.setText(str(self.channel1_Thresh_slider.value()))
+
+    def threshSliderValueChanged2(self):
+        self.ch2ThreshLE.setText(str(self.channel2_Thresh_slider.value()))
+
+    def thetaSliderValueChanged(self):
+        self.thetaLE.setText(str(self.theta_slider.value()))
+
+    def percentageSliderValueChanged(self):
+        self.percentageLE.setText(str(self.percentage_slider.value()))
+
+    def theshLineEditChanged1(self):
+        try:
+            if int(self.ch1ThreshLE.text()) > 255:
+                self.ch1ThreshLE.setText("255")
+            elif int(self.ch1ThreshLE.text()) < 0:
+                self.ch1ThreshLE.setText("0")
+        except ValueError:
+            self.ch1ThreshLE.setText("0")
+
+        self.channel1_Thresh_slider.setValue(int(self.ch1ThreshLE.text()))
+
+    def theshLineEditChanged2(self):
+        try:
+            if int(self.ch2ThreshLE.text()) > 255:
+                self.ch2ThreshLE.setText("255")
+            elif int(self.ch2ThreshLE.text()) < 0:
+                self.ch2ThreshLE.setText("0")
+        except ValueError:
+            self.ch2ThreshLE.setText("0")
+
+        self.channel2_Thresh_slider.setValue(int(self.ch2ThreshLE.text()))
+
+    def thetaLineEditChanged(self):
+        try:
+            if int(self.thetaLE.text()) > 89:
+                self.thetaLE.setText("89")
+            elif int(self.thetaLE.text()) < 0:
+                self.thetaLE.setText("0")
+        except ValueError:
+            self.thetaLE.setText("0")
+
+        self.theta_slider.setValue(int(self.thetaLE.text()))
+
+    def percentageLineEditChanged(self):
+        try:
+            if int(self.percentageLE.text()) > 100:
+                self.percentageLE.setText("100")
+            elif int(self.percentageLE.text()) < 0:
+                self.percentageLE.setText("0")
+        except ValueError:
+            self.percentageLE.setText("0")
+
+        self.percentage_slider.setValue(int(self.percentageLE.text()))
+
+    def createFileSelectGroupBox(self):
+        self.fileSelectGroupBox = QGroupBox("Input File Select")
+
+        ch1_label = QLabel("Channel 1")
+        self.channel1_FileLE = QLineEdit("Red2D.png")  # "RedSphere.tif")
+        self.channel1_FileLE.setToolTip("Used TIFF for 3D (RED channel)")
+        ch1BrowseButton = QPushButton("Browse")
+        # ch1BrowseButton.setDefault(True)
+        ch1BrowseButton.clicked.connect(self.selectFile1)
+
+        ch2_label = QLabel("Channel 2")
+        self.channel2_FileLE = QLineEdit("Green2D.png")  # "GreenSphere.tif")
+        self.channel1_FileLE.setToolTip("Used TIFF for 3D (GREEN channel)")
+        ch2BrowseButton = QPushButton("Browse")
+        ch2BrowseButton.clicked.connect(self.selectFile2)
+
+        self.visualizeInputFilesCheckBox = QCheckBox("&Visualize input")
+        self.visualizeInputFilesCheckBox.setChecked(True)
+
+        layout = QGridLayout()
+        layout.addWidget(ch1_label, 0, 0)
+        layout.addWidget(self.channel1_FileLE, 0, 1)
+        layout.addWidget(ch1BrowseButton, 0, 2)
+
+        layout.addWidget(ch2_label, 1, 0)
+        layout.addWidget(self.channel2_FileLE, 1, 1)
+        layout.addWidget(ch2BrowseButton, 1, 2)
+        layout.setColumnMinimumWidth(1, 300)
+        layout.addWidget(self.visualizeInputFilesCheckBox, 2, 0, 1, 3)
+
+        self.fileSelectGroupBox.setLayout(layout)
+
+    def createParameterGroupBox(self):
+        self.parameterGroupBox = QGroupBox("Parameters")
+
+        defaultSliderVal = 5
+        # Channel 1
+        ch1_label = QLabel("Channel 1 Threshold")
+        self.channel1_Thresh_slider = QSlider(Qt.Horizontal, self.parameterGroupBox)
+        self.channel1_Thresh_slider.setTickPosition(QSlider.TicksBothSides)
+        self.channel1_Thresh_slider.setTickInterval(32)
+        self.channel1_Thresh_slider.setRange(0, 255)
+        self.channel1_Thresh_slider.setSingleStep(1)
+        self.channel1_Thresh_slider.setValue(defaultSliderVal)
+
+        labelMin1 = QLabel("0");
+        labelMax1 = QLabel("255");
+        self.ch1ThreshLE = QLineEdit(str(defaultSliderVal))
+        self.ch1ThreshLE.setFixedWidth(40)
+        self.ch1ThreshLE.textChanged.connect(self.theshLineEditChanged1)
+
+        self.channel1_Thresh_slider.valueChanged.connect(self.threshSliderValueChanged1)
+
+        layoutSlider1 = QGridLayout();
+        layoutSlider1.addWidget(self.channel1_Thresh_slider, 0, 1);
+        layoutSlider1.addWidget(labelMin1, 0, 0);
+        layoutSlider1.addWidget(labelMax1, 0, 2);
+        layoutSlider1.addWidget(self.ch1ThreshLE, 0, 3);
+
+        ########################################################
+
+        # Channel 2
+        ch2_label = QLabel("Channel 2 Threshold")
+        self.channel2_Thresh_slider = QSlider(Qt.Horizontal, self.parameterGroupBox)
+        self.channel2_Thresh_slider.setTickPosition(QSlider.TicksBothSides)
+        self.channel2_Thresh_slider.setTickInterval(32)
+        self.channel2_Thresh_slider.setRange(0, 255)
+        self.channel2_Thresh_slider.setSingleStep(1)
+        self.channel2_Thresh_slider.setValue(defaultSliderVal)
+
+        labelMin2 = QLabel("0");
+        labelMax2 = QLabel("255");
+        self.ch2ThreshLE = QLineEdit(str(defaultSliderVal))
+        self.ch2ThreshLE.setFixedWidth(40)
+        self.ch2ThreshLE.textChanged.connect(self.theshLineEditChanged2)
+
+        self.channel2_Thresh_slider.valueChanged.connect(self.threshSliderValueChanged2)
+
+        layoutSlider2 = QGridLayout();
+        layoutSlider2.addWidget(self.channel2_Thresh_slider, 0, 1);
+        layoutSlider2.addWidget(labelMin2, 0, 0);
+        layoutSlider2.addWidget(labelMax2, 0, 2);
+        layoutSlider2.addWidget(self.ch2ThreshLE, 0, 3);
+
+        ########################################################
+
+        # Penelization factor
+        theta_label = QLabel("Penelization factor (theta)")
+        self.theta_slider = QSlider(Qt.Horizontal, self.parameterGroupBox)
+        self.theta_slider.setTickPosition(QSlider.TicksBothSides)
+        self.theta_slider.setTickInterval(15)
+        self.theta_slider.setRange(0, 89)
+        self.theta_slider.setSingleStep(1)
+        self.theta_slider.setValue(45)
+
+        labelMinTheta = QLabel("0");
+        labelMaxTheta = QLabel("89");
+        self.thetaLE = QLineEdit(str(45))
+        self.thetaLE.setFixedWidth(40)
+        self.thetaLE.textChanged.connect(self.thetaLineEditChanged)
+
+        self.theta_slider.valueChanged.connect(self.thetaSliderValueChanged)
+
+        layoutSliderTheta = QGridLayout();
+        layoutSliderTheta.addWidget(self.theta_slider, 0, 1);
+        layoutSliderTheta.addWidget(labelMinTheta, 0, 0);
+        layoutSliderTheta.addWidget(labelMaxTheta, 0, 2);
+        layoutSliderTheta.addWidget(self.thetaLE, 0, 3);
+
+        ########################################################
+
+        # Percentage to include
+        percentage_label = QLabel("Percentage to include")
+        self.percentage_slider = QSlider(Qt.Horizontal, self.parameterGroupBox)
+        self.percentage_slider.setTickPosition(QSlider.TicksBothSides)
+        self.percentage_slider.setTickInterval(25)
+        self.percentage_slider.setRange(0, 100)
+        self.percentage_slider.setSingleStep(1)
+        self.percentage_slider.setValue(99)
+
+        labelMinPercentage = QLabel("0");
+        labelMaxPercentage = QLabel("100");
+        self.percentageLE = QLineEdit(str(99))
+        self.percentageLE.setFixedWidth(40)
+        self.percentageLE.textChanged.connect(self.percentageLineEditChanged)
+
+        self.percentage_slider.valueChanged.connect(self.percentageSliderValueChanged)
+
+        layoutSliderPercentage = QGridLayout();
+        layoutSliderPercentage.addWidget(self.percentage_slider, 0, 1);
+        layoutSliderPercentage.addWidget(labelMinPercentage, 0, 0);
+        layoutSliderPercentage.addWidget(labelMaxPercentage, 0, 2);
+        layoutSliderPercentage.addWidget(self.percentageLE, 0, 3);
+
+        layout = QGridLayout()
+        layout.addWidget(ch1_label, 0, 0)
+        layout.addLayout(layoutSlider1, 0, 1)
+
+        layout.addWidget(ch2_label, 1, 0)
+        layout.addLayout(layoutSlider2, 1, 1)
+
+        layout.addWidget(theta_label, 2, 0)
+        layout.addLayout(layoutSliderTheta, 2, 1)
+
+        layout.addWidget(percentage_label, 3, 0)
+        layout.addLayout(layoutSliderPercentage, 3, 1)
+        self.parameterGroupBox.setLayout(layout)
+
+    def createOutputSettingsGroup(self):
+        self.outputGroupBox = QGroupBox("Output Settings")
+
+        self.outputFileTypeComboBox = QComboBox()
+        self.outputFileTypeComboBox.addItem("TIF stack")
+        self.outputFileTypeComboBox.addItem("PNG slices")
+        self.outputFileTypeComboBox.addItem("JPG slices")
+
+        fileTypeLabel = QLabel("&Output File type:")
+        fileTypeLabel.setBuddy(self.outputFileTypeComboBox)
+
+        self.grayscaleOutput = QCheckBox("&Output in grayscale")
+        self.grayscaleOutput.setChecked(False)
+
+        self.visualizeOutput = QCheckBox("&Visualize output")
+        self.visualizeOutput.setChecked(True)
+
+        outputTypeLayout = QHBoxLayout()
+        outputTypeLayout.addWidget(fileTypeLabel)
+        outputTypeLayout.addWidget(self.outputFileTypeComboBox)
+        outputTypeLayout.addWidget(self.grayscaleOutput)
+        outputTypeLayout.addStretch(1)
+        outputTypeLayout.addWidget(self.visualizeOutput)
+
+        self.outputGroupBox.setLayout(outputTypeLayout)
+
+if __name__ == '__main__':
+    try:
+        app
+    except NameError:
+        app = QApplication([])
+    else:
+        print("QApplication already defined")
+
+    racc = RACC()
+    racc.show()
+    app.exec_()
