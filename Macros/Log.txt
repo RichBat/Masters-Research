@@ -1,0 +1,7 @@
+Refractive index immersion: 1.518
+Wavelength: 633
+NA: 1.4600000000000002
+Pixelsize XY: 83.0266
+Pixelsize XY v2: 0.08303
+Z-step: 350
+Size X 1024 Size Y 1024 Size Z 6

@@ -8,24 +8,26 @@ import copy
 import os
 import json
 import math
+import matplotlib.backends.qt_compat
 
 import warnings
 from enum import Enum
 
 from mayavi import mlab
-from mayavi.core.ui.api import MayaviScene, MlabSceneModel, \
-        SceneEditor
+from mayavi.core.ui.api import MayaviScene, MlabSceneModel, SceneEditor
 from tvtk.util import ctf
 
 from skimage import data, io
 
 #import matplotlib.pyplot as plt
 from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
-if is_pyqt5():
+#temporary
+from matplotlib.backends.backend_qt5agg import (FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
+'''if is_pyqt5():
     from matplotlib.backends.backend_qt5agg import (FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
 else:
     from matplotlib.backends.backend_qt4agg import (
-        FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
+        FigureCanvas, NavigationToolbar2QT as NavigationToolbar)'''
 from matplotlib.figure import Figure
 
 
@@ -416,6 +418,7 @@ class RACC(QDialog):
 
     def preview(self):
         #This function displays the composite of input channel images
+        print("Time checked? ", self.TimeSeriesDataCheckBox.isChecked())
         try:
             if (self.visualizeInputFilesCheckBox.isChecked()):
                 self.mainLayout.setColumnMinimumWidth(1, 490)
@@ -435,12 +438,16 @@ class RACC(QDialog):
             threshCh1 = int(self.ch1ThreshLE.text())
             threshCh2 = int(self.ch2ThreshLE.text())
 
-
+            print("Channel 1 shape ", ch1Stack.shape)
+            if(self.TimeSeriesDataCheckBox.isChecked()):
+                ch1Stack = ch1Stack[0]
+                ch2Stack = ch2Stack[0]
+                print(ch1Stack.shape)
             if (len(ch1Stack.shape) == 4):  # assuming (slices,x,y,RGB/RGBA)
                 # remove alpha channel if exists
                 ch1Stack = ch1Stack[:, :, :, 0:3]
                 ch2Stack = ch2Stack[:, :, :, 0:3]
-
+                print("Shape after stack RGB", ch1Stack.shape)
                 ch1Stack = np.amax(ch1Stack, axis=3)
                 ch2Stack = np.amax(ch2Stack, axis=3)
 
@@ -584,6 +591,9 @@ class RACC(QDialog):
         self.visualizeInputFilesCheckBox = QCheckBox("&Visualize input")
         self.visualizeInputFilesCheckBox.setChecked(True)
 
+        self.TimeSeriesDataCheckBox = QCheckBox("&Time Series")
+        self.TimeSeriesDataCheckBox.setChecked(True)
+
         layout = QGridLayout()
         layout.addWidget(ch1_label, 0, 0)
         layout.addWidget(self.channel1_FileLE, 0, 1)
@@ -594,6 +604,7 @@ class RACC(QDialog):
         layout.addWidget(ch2BrowseButton, 1, 2)
         layout.setColumnMinimumWidth(1, 300)
         layout.addWidget(self.visualizeInputFilesCheckBox, 2, 0, 1, 3)
+        layout.addWidget(self.TimeSeriesDataCheckBox, 2, 2, 1, 3)
 
         self.fileSelectGroupBox.setLayout(layout)
 
@@ -740,12 +751,13 @@ class RACC(QDialog):
         self.outputGroupBox.setLayout(outputTypeLayout)
 
 
-    def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage, timedim, configNum, savePath, sampleName):
+    def processThread(self, thresholds, ch1filepath, ch2filepath, value, percentage, configNum, savePath, sampleName):
         # Preprocessing and setup
         # threshCh1 = int(self.ch1ThreshLE.text())
         # threshCh2 = int(self.ch2ThreshLE.text())
         # All of the self.   .text() objects are inherited from the GUI classes. They need to be replaced currently with arguement parameters for the function
         # or from a new function to extract those parameters from a text file
+        timedim = self.TimeSeriesDataCheckBox.isChecked()
         threshCh1 = thresholds[0]
         threshCh2 = thresholds[1]
         penFactor = value
