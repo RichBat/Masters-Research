@@ -7,33 +7,82 @@ from skimage import data, io
 from skimage.filters import apply_hysteresis_threshold
 from skimage.exposure import histogram
 import matplotlib.pyplot as plt
+from skimage.metrics import mean_squared_error
+from skimage.metrics import structural_similarity as ssim
 
 import numpy as np
 
 def main():
-    input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
-    output_path = "C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\"
-    threshold_record_path = "C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\Record.txt"
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Input Data\\"
+    output_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Output Data\\"
+    threshold_record_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Output Data\\Record.txt"
+    thresholded_compare_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Manual Thresh\\"
     if exists(threshold_record_path):
         record = open(threshold_record_path, 'a')
     else:
         record = open(threshold_record_path, 'w')
-    images = [input_path + f for f in listdir(input_path) if isfile(join(input_path, f))]
+    images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
     print(images)
-    parameter_variations = [[10],[4]]
+    parameter_variations = [[10, 20],[2, 4]]
+
+    iDict = {}
     for i in images:
-        for m in parameter_variations[0]:
-            for c in parameter_variations[1]:
-                thresholdingLoop(i, input_path, output_path, m, c, record)
+        if i in listdir(thresholded_compare_path):
+            manual_thresh = io.imread(thresholded_compare_path + i)
+            mDict = {}
+            for m in parameter_variations[0]:
+                cDict = {}
+                for c in parameter_variations[1]:
+                    HystThreshold = thresholding(i, input_path, output_path, m, c, record)
+                    HystThreshold = HystThreshold.astype('uint8')
+                    mse_Result = mean_squared_error(manual_thresh/np.max(manual_thresh), HystThreshold)
+                    #ssim_Result = ssim(manual_thresh, HystThreshold)
+                    cDict[str(c)] = mse_Result
+                mDict[str(m)] = cDict
+            iDict[i] = mDict
+    comparison_results = np.zeros([len(parameter_variations[0]), len(parameter_variations[1])])
+    num_files = len(list(iDict))
+    for files, values in iDict.items():
+        for m_index, m_values in values.items():
+            for c_index, c_values in m_values.items():
+                comparison_results[parameter_variations[0].index(int(m_index)), parameter_variations[1].index(int(c_index))] += c_values
+    comparison_results = comparison_results / num_files
+    print(iDict)
+    print(comparison_results)
+    for m in parameter_variations[0]:
+        for c in parameter_variations[1]:
+            print("Value for m", m, "and c", c, " = ", comparison_results[parameter_variations[0].index(int(m)), parameter_variations[1].index(int(c))])
+    print("C Average", np.mean(comparison_results, axis=0))
+    print("M Average", np.mean(comparison_results, axis=1))
+
+
     record.close()
     return
+
+def thresholding(i, input_path, output_path, movingAverageFrame, cutOffSlope, record_name):
+    img = io.imread(input_path + i)
+    print(type(img))
+    if len(img.shape) <= 3:
+        print(i)
+        filename = '.'.join(i.split(sep=".")[:-1]) + "m" + str(movingAverageFrame) + "c" + str(
+            cutOffSlope) + ".tif"
+        #hist_name="Hist of " + '.'.join(filename.split(sep=".")[:-1]) + ".png"
+        low, high = determineHysteresisThresholds(img=img, outputPath=output_path, movingAverageFrame=movingAverageFrame,cutOffSlope=cutOffSlope)
+        normalize_img = img / np.max(img)
+        thresholded = hysteresisThresholdingStack(normalize_img, low, high)
+        #record_name.write(filename + " low: " + str(low*256) + " high: " + str(high*256) + "\n")
+        #print('.'.join(filename.split(sep=".")[:-1]) + "m" + str(movingAverageFrame) + "c" + str(cutOffSlope) + ".tif")
+        print(filename)
+        #io.imsave(output_path + filename, thresholded)
+        return thresholded
 
 def thresholdingLoop(i, input_path, output_path, movingAverageFrame, cutOffSlope, record_name):
     img = io.imread(i)
     if len(img.shape) <= 3:
         filename = '.'.join(i.split(sep=input_path)[1].split(sep=".")[:-1]) + "m" + str(movingAverageFrame) + "c" + str(
             cutOffSlope) + ".tif"
-        low, high = determineHysteresisThresholds(img=img, outputPath=output_path, hist_name="Hist of " + '.'.join(filename.split(sep=".")[:-1]) + ".png", movingAverageFrame=movingAverageFrame,
+        #hist_name="Hist of " + '.'.join(filename.split(sep=".")[:-1]) + ".png"
+        low, high = determineHysteresisThresholds(img=img, outputPath=output_path, movingAverageFrame=movingAverageFrame,
                                                   cutOffSlope=cutOffSlope)
         normalize_img = img / np.max(img)
         thresholded = hysteresisThresholdingStack(normalize_img, low, high)
@@ -49,7 +98,8 @@ def thresholdingLoop(i, input_path, output_path, movingAverageFrame, cutOffSlope
         fileEndHalf = "m" + str(movingAverageFrame) + "c" + str(cutOffSlope) + ".tif"
         for t in range(img.shape[0]):
             print("Index: ", t)
-            low, high = determineHysteresisThresholds(img=img[t], outputPath=output_path, hist_name="Hist of " + fileFirstHalf + "t" + str(t) + fileEndHalf + ".png", movingAverageFrame=movingAverageFrame,
+            #hist_name="Hist of " + fileFirstHalf + "t" + str(t) + fileEndHalf + ".png",
+            low, high = determineHysteresisThresholds(img=img[t], outputPath=output_path, movingAverageFrame=movingAverageFrame,
                                                       cutOffSlope=cutOffSlope)
             normalize_img = img[t] / np.max(img[t])
             threshold_timepoints.append(hysteresisThresholdingStack(normalize_img, low, high))
@@ -86,7 +136,7 @@ def determineHysteresisThresholds(img, outputPath=None, hist_name=None, bins=256
               break
 
     print(outputPath)
-    if outputPath != None:
+    if outputPath != None and hist_name != None:
         plt.figure(figsize=(6, 4))
         plt.plot(centers, counts, color='black')
         plt.axvline(useIntensityLow, 0, 1, label='Low', color="red")
@@ -95,8 +145,7 @@ def determineHysteresisThresholds(img, outputPath=None, hist_name=None, bins=256
         plt.ylabel("Count")
         plt.title("The automatically calculated hysteresis thresholding values")
         plt.tight_layout()
-        if hist_name != None:
-            outputPath = outputPath + "\\" + hist_name
+        outputPath = outputPath + "\\" + hist_name
         plt.savefig(outputPath)
         print("Saved histogram")
 
