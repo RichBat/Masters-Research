@@ -19,6 +19,7 @@ def main():
     print(images)
     set_of_samples = {}
     channels_per_sample = {}
+    print("Samples:", samples)
     for s in samples:
         key = s.split("=")[0][:-1]
         set_of_samples[key] = []
@@ -27,21 +28,47 @@ def main():
         else:
             channels_per_sample[key] += 1
     print(channels_per_sample)
-    print(set_of_samples)
+    #print(set_of_samples)
     for i in images:
         filename = i.split(sep=input_path)[1].split("=")[0][:-1]
         print(filename)
         mask, threshold = thresholding(i, 10, 4)
-        set_of_samples[filename].append([mask, threshold])
+        set_of_samples[filename].append([masking(io.imread(i), mask), threshold])
         print(len(set_of_samples[filename]))
         if len(set_of_samples[filename]) == channels_per_sample[filename]:
             #Need to correctly pair up the masks and the intensity images. Currently only the masks are stored!!!
-            print("Stack prep (Mask if needed)")
+            thresholded = set_of_samples.pop(filename, None)
+            #Currently threshold arrays are all masked thus they are segmented intensity images. Binary images makes no sense as there is then literally zero correlation information
+            coloc_results = RACC([thresholded[0][1], thresholded[1][1]], thresholded[0][0], thresholded[1][0], 45, 95, False)
             print("Coloc Time")
-            print(set_of_samples.pop("filename", None))
-    print(set_of_samples)
+            print(coloc_results.shape)
+            io.imsave(output_path + filename + ".tif", coloc_results)
+    print("Set of samples:", set_of_samples)
     print(samples)
     return
+
+def convertRGB(channel, Array):
+    newShape = list(Array.shape)
+    newShape.append(3)
+    #newArray = np.zeros(shape=newShape)
+    stackTest1 = np.zeros(shape=Array.shape)
+    stackTest2 = np.zeros(shape=Array.shape)
+    if channel == 0:
+        stackedArray = np.stack((Array, stackTest1, stackTest2), axis=-1)
+    elif channel == 1:
+        stackedArray = np.stack((stackTest1, Array, stackTest2), axis=-1)
+    else:
+        print("invalid channel")
+        return
+    '''for z in range(Array.shape[0]):
+        for w in range(Array.shape[1]):
+            for h in range(Array.shape[2]):
+                newArray[z][w][h][channel] = Array[z][w][h]'''
+    return stackedArray
+
+
+
+
 
 def thresholding(i, movingAverageFrame, cutOffSlope):
     img = io.imread(i)
@@ -90,7 +117,7 @@ def determineHysteresisThresholds(img, bins=256, movingAverageFrame=20, cutOffSl
 
     return (useIntensityLow/bins, (1.0-(1.0-useIntensityLow/bins)/2))
 
-def RACC(thresholds, ch1Stack, ch2Stack, value, percentage, calculated):
+def RACC(thresholds, ch1, ch2, value, percentage, calculated):
     # Preprocessing and setup
     # threshCh1 = int(self.ch1ThreshLE.text())
     # threshCh2 = int(self.ch2ThreshLE.text())
@@ -109,6 +136,8 @@ def RACC(thresholds, ch1Stack, ch2Stack, value, percentage, calculated):
     # contains values 0-255
     # ch1Stack = io.imread(self.channel1_FileLE.text())
     # ch2Stack = io.imread(self.channel2_FileLE.text())
+    ch1Stack = convertRGB(channel=0, Array=ch1)
+    ch2Stack = convertRGB(channel=1, Array=ch2)
 
     maxIntensity1 = np.max(ch1Stack)
     maxIntensity2 = np.max(ch2Stack)
