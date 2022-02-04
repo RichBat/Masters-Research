@@ -1,5 +1,5 @@
-deconv_path = "C:/RESEARCH/Mitophagy_data/2.Deconvolved/";
-output_path = "C:/RESEARCH/Mitophagy_data/3.Pre-Processed/";
+deconv_path = "C:/Users/richy/Desktop/Sholto Crops/Sholto's try/";
+output_path = "C:/Users/richy/Desktop/Sholto Crops/Output/";
 
 if(!File.exists(output_path))
 	File.makeDirectory(output_path);
