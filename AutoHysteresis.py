@@ -3,14 +3,17 @@ from os.path import isfile, join, exists
 
 import pandas as pd
 
+from sklearn.metrics import mean_absolute_error
 from skimage import data, io
 from skimage.filters import apply_hysteresis_threshold
 from skimage.exposure import histogram
 import matplotlib.pyplot as plt
 from skimage.metrics import mean_squared_error
 from skimage.metrics import structural_similarity as ssim
-
+import cv2
 import numpy as np
+
+manual_Hysteresis = ["CCCP_1C=0.tif", [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif", [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif", [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif", [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif", [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif", [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif", [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif", [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif", [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif", [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif", [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif", [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif", [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif", [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1", [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif", [[0.034, 0.097], [0.024, 0.1]]]
 
 def main():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Input Data\\"
@@ -28,7 +31,7 @@ def main():
     iDict = {}
     for i in images:
         if i in listdir(thresholded_compare_path):
-            manual_thresh = io.imread(thresholded_compare_path + i)
+            manual_thresh = image_average(io.imread(input_path+i, ))
             mDict = {}
             for m in parameter_variations[0]:
                 cDict = {}
@@ -58,6 +61,33 @@ def main():
 
     record.close()
     return
+
+def image_average(input_image, parameters, thresh_type):
+    thresholded_images = []
+    value1 = 0
+    value2 = 0
+    for p in parameters:
+        value1 += p[0]
+        value2 += p[1]
+        if thresh_type:
+            thresholded_images.append(adaptive_threshold_stack(input_image, p[0], p[1]))
+        else:
+            thresholded_images.append(hysteresisThresholdingStack(input_image, p[0], p[1]).astype(int))
+    if thresh_type:
+        thresholded_images.append(adaptive_threshold_stack(input_image, value1/len(parameters), value2/len(parameters)))
+    else:
+        thresholded_images.append(hysteresisThresholdingStack(input_image, value1/len(parameters), value2/len(parameters)).astype(int))
+    average_image = np.mean( np.array(thresholded_images), axis=0)
+    return np.round(average_image)
+
+def adaptive_threshold_stack(input_image, block_size = 100, constant = -30):
+    if block_size % 2 != 1:
+        block_size += 1
+
+    thresholded = []
+    for i in range(input_image.shape[0]):
+        thresholded.append(cv2.adaptiveThreshold(input_image[i], 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, constant)) # ADAPTIVE_THRESH_MEAN_C
+    return np.array(thresholded)
 
 def thresholding(i, input_path, output_path, movingAverageFrame, cutOffSlope, record_name):
     img = io.imread(input_path + i)
