@@ -5,8 +5,8 @@ import pandas as pd
 import math
 from sklearn.metrics import mean_absolute_error
 from skimage import data, io
-from skimage.filters import apply_hysteresis_threshold
-from skimage.exposure import histogram
+from skimage.filters import apply_hysteresis_threshold, threshold_multiotsu, threshold_otsu
+from skimage.exposure import histogram, equalize_hist, equalize_adapthist, rescale_intensity
 import matplotlib.pyplot as plt
 from skimage.metrics import mean_squared_error as mse
 from sklearn.metrics import mean_squared_error
@@ -15,22 +15,47 @@ import cv2
 import numpy as np
 from knee_locator import KneeLocator
 
-manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif": [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif": [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif": [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif": [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif": [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif": [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif": [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif": [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif": [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif": [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1": [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif": [[0.034, 0.097], [0.024, 0.1]]}
+manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif": [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif": [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif": [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif": [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif": [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif": [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif": [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif": [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif": [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif": [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1.tif": [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif": [[0.034, 0.097], [0.024, 0.1]]}
 
 def testing():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
+    output_path = "C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\"
     images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
+    results = ""
+    complete_results = {}
     for filename in images:
         img = io.imread(input_path + filename)
-        position = testing_knee(img)
-        low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=4)
-        #hist_threshold_differences(filename, low, high, img)
+        #print("Otsu: ", threshold_multiotsu(img))
+        kernel_size = np.array([img.shape[dim] // 8 for dim in range(img.ndim)])
+        kernel_size[0] = img.shape[0]
+        p2, p98 = np.percentile(img, (2, 98))
+        #position = testing_knee(img)
+        #img = equalize_adapthist(img, kernel_size)
+        #img = equalize_hist(img)
+        #img = rescale_intensity(img, in_range=(p2, p98))
+        #hist_average(img, 5)
+        position = testing_knee(img, log_hist=True)
+        log_position = testing_knee(img)
+        #histogram_density(img, position)
+        '''low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
+        log_low, log_high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=True)
+        results = hist_threshold_differences(filename, low, position, img)
+        log_results = hist_threshold_differences(filename, log_low, log_position, img)
+        complete_results[filename] = {"Normal":results, "Log":log_results}'''
+        iterate_high(img, position)
         #position, valid = detectElbows(img)
+        '''
+        elbow_high = (1.0-(1.0-position/255)/2)*255
+        #elbowThresh = hysteresis_thresholding_stack(img, position, elbow_high)
+        #io.imsave(output_path + filename + ".tif", elbowThresh)
         valid = True
+        #hist_compare(img)
+        print("Hurrah ", position, " file: ", filename)
         if valid:
-            print("Sample:", filename, " Threshold:", position)
-            print("Low:", low*255, " High:", high*255)
-            print(np.array(manual_Hysteresis[filename])*255)
+            results += "Sample: " + str(filename) + " Threshold: " + str(position) + " High: " + str(elbow_high) + "\n"
+            results += "Low: " + str(low*255) + " High: " + str(high*255) + "\n"
+            results += "Actual: " + str(manual_Hysteresis[filename][0][0]*255) + " " + str(manual_Hysteresis[filename][0][1]*255) + " " + str(manual_Hysteresis[filename][1][0]*255) + " " + str(manual_Hysteresis[filename][1][1]*255) + "\n"
+        '''
         '''result = image_average(img, manual_Hysteresis[filename], False)
         fig, (ax1) = plt.subplots(1)
         fig.set_size_inches(10, 7)
@@ -45,11 +70,184 @@ def testing():
         plt.tight_layout()
         plt.savefig("C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\Hist.tif")
         print("Saved histogram")'''
+        #img = equalize_hist(img)
+        #testing_knee(img, int(elbow_high))
+    #print(complete_results)
+    for key, values in complete_results.items():
+        print("Sample Results", key, "\nDetermined MAE: Normal=", values["Normal"][0][0], " Log=", values["Log"][0][0], "\nKnee MAE: Normal=", values["Normal"][0][1], " Log=", values["Log"][0][1])
 
-def testing_knee(img):
+def get_high(low, ratio):
+    return (255 - (255 - low)/ratio)
+
+def parameter_thresholder(img, sample, moving_average, cutoff, low_values):
+    results = []
+    for low in low_values:
+        high = get_high(low, 2)
+        normalize_img = img / np.max(img)
+        thresholded = hysteresis_thresholding_stack(normalize_img, low, high)
+        manual = image_average(img)
+        HystThreshold = thresholded.astype('uint8')
+        mse_result = mse(manual / np.max(manual), HystThreshold)
+        #copy loop from main() for where this is implemented as the three nested for loops organize the data for printing and to check if valid file
+
+def iterate_high(img, low_threshold, step_size=5):
+    maximum = np.max(img)
+    normalize_img = img / maximum
+    offset = int((maximum - low_threshold)/step_size) #Number of steps rounded down to nearest integer
+    offset = maximum - offset*step_size + step_size #This result will be one step plus the distance different between them. In future the step_size here could be multiplied for greater offset
+    step_size = -1*step_size
+    steps = []
+    populations = []
+    print("Low Threshold:", low_threshold)
+    print("Offset:", offset)
+    for high_thresh in range(maximum, offset, step_size):
+        thresholded = hysteresis_thresholding_stack(normalize_img, low_threshold/255, high_thresh/255)
+        populations.append(thresholded.sum())
+        steps.append(high_thresh)
+    plt.figure(figsize=(6, 6))
+    plt.plot(steps, populations, color='black')
+    plt.xlabel("Intensity")
+    plt.ylabel("Count")
+    plt.title("The automatically calculated hysteresis thresholding values")
+    plt.tight_layout()
+    plt.show()
+
+def histogram_density(img, start_point = 1, cutoff = 0.25):
     counts, centers = histogram(img, nbins=256)
-    locator = KneeLocator(x=centers[1:], y=counts[1:], curve="convex", direction="decreasing")
-    return locator.knee
+    counts = counts[start_point:]
+    centers = centers[start_point:]
+    total_voxels = np.sum(counts)
+    counter = 0
+    for v in range(len(counts), 0, -1):
+        counter += 1
+        if np.sum(counts[v:])/total_voxels >= cutoff:
+            print("Density reached at ", v)
+            print(centers[v])
+            print(total_voxels)
+            print(check_neighbouring_voxels(v, img))
+            break
+    print("Number of loops: ", counter)
+
+def check_neighbouring_voxels(current_threshold, img, decay_rate=0.1):
+    total_neighbours = 0
+    #print("Progress: ")
+    padded_img = np.pad(img, 1)
+    progress = 0
+    high_intensity_threshold = (np.zeros_like(img) + 1) * current_threshold
+    core_structures = np.greater_equal(img, high_intensity_threshold)
+    number_of_core = core_structures.sum()
+    for x in range(1, padded_img.shape[0] - 1, 1):
+        for y in range(1, padded_img.shape[1] - 1, 1):
+            for z in range(1, padded_img.shape[2] - 1, 1):
+                if padded_img[x, y, z] >= current_threshold:
+                    progress += 1
+                    tracker = padded_img[x-1:x+2, y-1:y+2, z-1:z+2]
+                    reduced_intesity = current_threshold - current_threshold*decay_rate
+                    logical_array = (np.zeros((3, 3, 3)) + 1) * reduced_intesity
+                    boolean_array = np.greater_equal(tracker, logical_array)
+                    kernel = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]], [[0, 1, 0], [1, 0, 1], [0, 1, 0]], [[0, 0, 0], [0, 1, 0], [0, 0, 0]]]
+                    results = boolean_array * kernel
+                    #print(progress/(img.shape[0] * img.shape[1] * img.shape[2]), "%")
+                    total_neighbours += results.sum()
+    return total_neighbours, number_of_core
+
+def hist_compare(img):
+    kernel_size = np.array([img.shape[dim] // 8 for dim in range(img.ndim)])
+    kernel_size[0] = img.shape[0]
+    adapt_img = equalize_adapthist(img, kernel_size)
+    equal_img = equalize_hist(img)
+    p2, p98 = np.percentile(img, (2, 98))
+    stretched_img = rescale_intensity(img, in_range=(p2, p98))
+    adapt_hist = {}
+    equal_hist = {}
+    normal_hist = {}
+    stretched_hist = {}
+
+    adapt_hist[0], adapt_hist[1] = histogram(adapt_img, nbins=256)
+    equal_hist[0], equal_hist[1] = histogram(equal_img, nbins=256)
+    normal_hist[0], normal_hist[1] = histogram(img, nbins=256)
+    stretched_hist[0], stretched_hist[1] = histogram(stretched_img, nbins=256)
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4)
+    fig.suptitle('Histogram comparisons')
+
+    adapt_line = testing_knee(adapt_img)
+    equal_line = testing_knee(equal_img)
+    normal_line = testing_knee(img)
+
+    ax1.axvline(adapt_line, 0, 1, label='Adaptive', color="blue")
+    ax2.axvline(equal_line, 0, 1, label='Equal', color="green")
+    ax3.axvline(normal_line, 0, 1, label='Normal', color="red")
+    print("Adaptive: ", adapt_line, " Equal: ", equal_line, " Normal: ", normal_line)
+
+    adapt_hist[1] = np.where(adapt_hist[1][1:] != 0, np.log10(adapt_hist[1][1:]), 0)
+    equal_hist[1] = np.where(equal_hist[1][1:] != 0, np.log10(equal_hist[1][1:]), 0)
+    normal_hist[1] = np.where(normal_hist[1][1:] != 0, np.log10(normal_hist[1][1:]), 0)
+    stretched_hist[1] = stretched_hist[1][1:]
+
+    adapt_hist[0] = adapt_hist[0][1:]*256
+    equal_hist[0] = equal_hist[0][1:]*256
+    normal_hist[0] = normal_hist[0][1:]
+    stretched_hist[0] = stretched_hist[0][1:]
+
+    ax1.plot(adapt_hist[1], adapt_hist[0], color="black")
+    ax2.plot(equal_hist[1], equal_hist[0], color="black")
+    ax3.plot(normal_hist[1], normal_hist[0], color="black")
+    ax4.plot(stretched_hist[1], stretched_hist[0], color="black")
+    plt.tight_layout()
+    plt.show()
+
+
+def hist_average(img, movingAverageFrame = 20):
+    counts, centers = histogram(img, nbins=256)
+    counts = counts[1:]
+    centers = centers[1:]
+    fig, (ax1, ax2, ax3) = plt.subplots(3)
+    fig.suptitle('Histogram Average Compare')
+    ax1.plot(centers, counts, color="black")
+    counts = np.where(counts != 0, np.log2(counts), 0)
+    ax2.plot(centers, counts, color="black")
+    df = pd.DataFrame(counts)
+    moving_average = df.rolling(movingAverageFrame, center=True).mean()
+    moving_average_array = moving_average.T.to_numpy()
+    counts = moving_average_array[0]
+    print("Average Array:", moving_average_array[0][10])
+    # print(movingAverageArray[0].shape, centers.shape)
+
+    #plt.figure(figsize=(6, 4))
+    ax3.plot(centers, counts, color='black')
+    #plt.xlabel("Intensity")
+    #plt.ylabel("Count")
+    #plt.title("The automatically calculated hysteresis thresholding values")
+    plt.tight_layout()
+    plt.show()
+
+def testing_knee(img, cutoff = 1, log_hist=False):
+    counts, centers = histogram(img, nbins=256)
+    counts = counts[cutoff:]
+    #print("Final Counts: ", counts[-20:-1])
+    if log_hist:
+        counts = np.where(counts != 0, np.log10(counts), 0)
+    centers = centers[cutoff:]
+    #print(centers.shape)
+    '''plt.figure(figsize=(6, 6))
+    plt.plot(centers, counts, color='black')
+    plt.xlabel("Intensity")
+    plt.ylabel("Count")
+    plt.title("The automatically calculated hysteresis thresholding values")
+    plt.tight_layout()
+    plt.show()'''
+
+    locator = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing")
+    knee = locator.knee
+    #print("knees: ", locator.all_knees, " knee heights: ", locator.all_knees_y)
+
+
+    #locator.plot_knee()
+    #plt.show()
+    #knee = int(locator.norm_knee*255)
+
+    return knee
 
 def main():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Input Data\\"
@@ -98,8 +296,12 @@ def main():
     record.close()
     return
 
-def hist_threshold_differences(sample_name, calculated_low, calculated_high, image = False):
-    print("Low:", calculated_low, " high:", calculated_high)
+def hist_threshold_differences(sample_name, determined_low, kneedle_low, image = False):
+    determined_high = (0.5 + determined_low*0.5)
+    determined_low = determined_low
+    kneedle_high = (0.5 + kneedle_low/255 * 0.5)*255
+    #print("Determined Low:", determined_low*255, "Determined high:", determined_high*255)
+    #print("Kneedle Low:", kneedle_low, "Kneedle high:", kneedle_high)
     manual_values = manual_Hysteresis[sample_name]
     pairs = {}
     for m in range(0, len(manual_values), 1):
@@ -113,17 +315,25 @@ def hist_threshold_differences(sample_name, calculated_low, calculated_high, ima
         mean_pairs.append([(p[0][0]+p[1][0])/2, (p[0][1]+p[1][1])/2])
     calc_differences = []
     for manual in manual_values:
-        distance = math.sqrt((manual[0] - calculated_low) ** 2 + (manual[1] - calculated_high) ** 2)
-        mae = (abs(manual[0] - calculated_low) + abs(manual[1] - calculated_high))/2
-        calc_differences.append([distance, mae])
-    print(pairs)
-    print(calc_differences)
-    print(mean_pairs)
+        determined_distance = math.sqrt((manual[0] - determined_low) ** 2 + (manual[1] - determined_high) ** 2)
+        kneedle_distance = math.sqrt((manual[0] - kneedle_low/255) ** 2 + (manual[1] - kneedle_high/255) ** 2)
+        determined_mae = (abs(manual[0] - determined_low) + abs(manual[1] - determined_high))/2
+        kneedle_mae = (abs(manual[0] - kneedle_low/255) + abs(manual[1] - kneedle_high/255))/2
+        calc_differences.append([determined_mae, kneedle_mae])
+    #print(pairs)
+    #print(calc_differences)
+    #print(mean_pairs)
+    MAE_results = []
     for m_pairs in mean_pairs:
-        print("Mean Dist:", math.sqrt((m_pairs[0] - calculated_low) ** 2 + (m_pairs[1] - calculated_high) ** 2))
-        print("Mean MAE:", (abs(m_pairs[0] - calculated_low) + abs(m_pairs[1] - calculated_high))/2)
-    counts, centers = histogram(image, nbins=256)
-    for k, pair in pairs.items():
+        mean_kneedle_mae = math.sqrt((m_pairs[0] - kneedle_low/255) ** 2 + (m_pairs[1] - kneedle_high/255) ** 2)
+        mean_determined_mae = (abs(m_pairs[0] - kneedle_low/255) + abs(m_pairs[1] - kneedle_high/255))/2
+        MAE_results.append([mean_determined_mae, mean_kneedle_mae])
+        #print("Mean Determined Dist:", math.sqrt((m_pairs[0] - determined_low) ** 2 + (m_pairs[1] - determined_high) ** 2))
+        #print("Mean Determined MAE:", (abs(m_pairs[0] - determined_low) + abs(m_pairs[1] - determined_high))/2)
+        #print("Mean Kneedle Dist:", mean_kneedle_mae)
+        #print("Mean Kneedle MAE:", mean_determined_mae)
+    #counts, centers = histogram(image, nbins=256)
+    '''for k, pair in pairs.items():
         # remove 'black'
         start = int(min(pair[0][1], pair[1][1])*255 - 40)
         print(start)
@@ -139,7 +349,8 @@ def hist_threshold_differences(sample_name, calculated_low, calculated_high, ima
         plt.ylabel("Count")
         plt.title("The automatically calculated hysteresis thresholding values")
         plt.tight_layout()
-        plt.show()
+        plt.show()'''
+    return MAE_results
 
 def image_average(input_image, parameters, thresh_type):
     thresholded_images = []
@@ -223,29 +434,32 @@ def thresholdingLoop(i, input_path, output_path, moving_average_frame, cut_off_s
 def hysteresis_thresholding_stack(stack, low=0.25, high=0.7): #Also from Rensu
     return apply_hysteresis_threshold(stack, low, high)
 
-def determine_hysteresis_thresholds(img, outputPath=None, hist_name=None, bins=256, moving_average_frame=20, cut_off_slope=4, highVal=0.95): #This function is from Rensu's MEL (Make sure to reference)
+def determine_hysteresis_thresholds(img, outputPath=None, hist_name=None, bins=256, moving_average_frame=20, cut_off_slope=2, log_value=False, highVal=0.95): #This function is from Rensu's MEL (Make sure to reference)
     counts, centers = histogram(img, nbins=bins)
     #remove 'black'
     counts = counts[1:]
     centers = centers[1:]
-
+    #counts = np.where(counts != 0, np.log10(counts), 0)
     df = pd.DataFrame(counts)
     movingAverage = df.rolling(moving_average_frame, center=True).mean()
-
+    movingAverageArray = movingAverage.T.to_numpy()
+    counts = movingAverageArray[0]
+    if log_value:
+        counts = np.where(movingAverageArray[0] != 0, np.log10(movingAverageArray[0]), 0)
     startIntensity = 10
     useIntensityLow = startIntensity
     useIntensityHigh = 0
 
     for i in range(len(movingAverage[0])*3//4,startIntensity, -1):
-        if movingAverage[0][i-10]/movingAverage[0][i+10] >= cut_off_slope:
+        if counts[i-10]/counts[i+10] >= cut_off_slope:
               useIntensityLow = i
               print("Low intensity to be used: ", useIntensityLow)
-              print("High intensity to be used: ", (1.0-(1.0-useIntensityLow/bins)/4)*bins)
+              print("High intensity to be used: ", ((bins-useIntensityLow)*(useIntensityLow/bins) + useIntensityLow))
 
               break
 
     print(outputPath)
-    plt.figure(figsize=(6, 6))
+    '''plt.figure(figsize=(6, 6))
     plt.plot(centers, counts, color='black')
     plt.axvline(useIntensityLow, 0, 1, label='Low', color="red")
     plt.axvline((1.0 - (1.0 - useIntensityLow / bins) / 2) * bins, 0, 1, label='High', color="blue")
@@ -253,7 +467,8 @@ def determine_hysteresis_thresholds(img, outputPath=None, hist_name=None, bins=2
     plt.ylabel("Count")
     plt.title("The automatically calculated hysteresis thresholding values")
     plt.tight_layout()
-    plt.show()
+    plt.show()'''
+    '''
     if outputPath != None and hist_name != None:
         plt.figure(figsize=(6, 4))
         plt.plot(centers, counts, color='black')
@@ -265,7 +480,7 @@ def determine_hysteresis_thresholds(img, outputPath=None, hist_name=None, bins=2
         plt.tight_layout()
         outputPath = outputPath + "\\" + hist_name
         plt.savefig(outputPath)
-        print("Saved histogram")
+        print("Saved histogram")'''
 
     return (useIntensityLow/bins, (1.0-(1.0-useIntensityLow/bins)/4))
 
@@ -273,7 +488,7 @@ def detectElbows(img, movingAverageFrame=20, elbowSize=10):
     #The gradient margin can get big (28%) thus the selected points are not even close to being perpendicular. A line of values between points needs to be generated and then check for interception. If it intercepts between two points then pick the closest or rightmost
     counts, centers = histogram(img, nbins=256)
     #remove black
-    counts = counts[1:]
+    counts = np.log10(counts[1:])
     centers = centers[1:]
     # [intensity, pixel_count]
     df = pd.DataFrame(counts)
