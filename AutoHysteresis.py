@@ -36,13 +36,14 @@ def testing():
         #hist_average(img, 5)
         position = testing_knee(img, log_hist=True)
         log_position = testing_knee(img)
+        calculate_high_threshold(img, position, 0.25, 0)
         #histogram_density(img, position)
         '''low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
         log_low, log_high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=True)
         results = hist_threshold_differences(filename, low, position, img)
         log_results = hist_threshold_differences(filename, log_low, log_position, img)
         complete_results[filename] = {"Normal":results, "Log":log_results}'''
-        iterate_high(img, position)
+        #iterate_high(img, position)
         #position, valid = detectElbows(img)
         '''
         elbow_high = (1.0-(1.0-position/255)/2)*255
@@ -129,6 +130,7 @@ def histogram_density(img, start_point = 1, cutoff = 0.25):
     print("Number of loops: ", counter)
 
 def check_neighbouring_voxels(current_threshold, img, decay_rate=0.1):
+    #current_threshold is the max to be used for the
     total_neighbours = 0
     #print("Progress: ")
     padded_img = np.pad(img, 1)
@@ -150,6 +152,80 @@ def check_neighbouring_voxels(current_threshold, img, decay_rate=0.1):
                     #print(progress/(img.shape[0] * img.shape[1] * img.shape[2]), "%")
                     total_neighbours += results.sum()
     return total_neighbours, number_of_core
+
+def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.1):
+    '''
+    - low is used to remove the low intensity and noise voxels which will greatly skew the density
+    - start_density to acquire the high intensity threshold starting point. Voxels above this intensity are within this ratio
+    - stop_margin is the margin of voxels gained to determine a stopping point. This should be a ratio such that voxels_retained/reference
+    where reference will either be the prior voxels retained or the total voxels retained. The ratio needs to be decided
+    - decay_rate is the rate at which the threshold value reduces by for each neighbouring check
+    '''
+    voxels_by_intensity, intensities = histogram(img, nbins=256) #This acquires the voxels at each intensity and the intensity at each element
+    voxels_by_intensity = voxels_by_intensity[low:]
+    intensities = intensities[low:]
+    img = np.pad(img, 1)
+    #Now the majority of low intensity and noise voxels are discarded
+    template_compare_array = np.zeros_like(img) + 1  # Array of 1's which can be multiplied by each threshold
+    total_population = voxels_by_intensity.sum()
+    initial_density = int(total_population*start_density) #This shall get the number of voxels above the initial high threshold
+    starting_intensity = intensities[-1]
+    for intensity in range(len(voxels_by_intensity), 0, -1):
+        if np.sum(voxels_by_intensity[intensity:]) >= initial_density:
+            starting_intensity = intensities[intensity]
+            print("Starting intensity found", starting_intensity)
+            break
+
+    #Now the starting high threshold has been acquired the rest can begin
+
+    range_of_intensities = recursive_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
+    range_of_intensities.insert(0, starting_intensity)
+    array_of_structures = np.zeros_like(img)
+    for i in range_of_intensities:
+        compare_array = template_compare_array * i
+        results = np.greater_equal(img, compare_array).astype(int)
+        array_of_structures = array_of_structures + results
+
+    #array_of_structures an array of ints. The voxel values are proportional to the number of intensities from range_of_intensities that the voxel is greater than/equal to
+    print("Range of intensities:", range_of_intensities)
+    starting_position = np.max(array_of_structures) #second highest value for highest intensity voxels will be the first set of neighbours
+    adjacency_array = np.zeros_like(array_of_structures) #array of zeros. Will be filled with 1's for joins
+    adjacency_array[np.where(array_of_structures == starting_position)] = 1 #Initial highest structures for join array
+    old_voxels = np.sum(adjacency_array)
+    initial_voxels = old_voxels
+    progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
+    for r in range(1, len(range_of_intensities), 1):
+        print("At intensity:", range_of_intensities[r])
+        for x in range(1, array_of_structures.shape[0]-1, 1):
+            for y in range(1, array_of_structures.shape[1] - 1, 1):
+                for z in range(1, array_of_structures.shape[2] - 1, 1):
+                    if array_of_structures[x, y, z] == r and np.any(adjacency_array[x-1:x+2, y-1:y+2, z-1:z+2]):
+                        adjacency_array[x, y, z] = 1
+        new_voxels = np.sum(adjacency_array)
+        change = (new_voxels/old_voxels) - 1
+        progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(change) + "and the total change is " + str((new_voxels - initial_voxels)/initial_voxels) + "\n"
+        if change <= stop_margin:
+            print(progress)
+            print("Stopped at ", range_of_intensities[r])
+            return
+        else:
+            old_voxels = new_voxels
+
+    print("Stopping point not found")
+    print(progress)
+    return
+
+
+def recursive_intensity_steps(bottom, top, ratio):
+    new_intensity = int(top * (1 - ratio)) #this will reduce top by 10%
+    steps = [new_intensity]
+    if int(new_intensity * (1 - ratio)) > bottom:
+        results = recursive_intensity_steps(bottom, new_intensity, ratio)
+        for r in results:
+            steps.append(r)
+    return steps
+
+
 
 def hist_compare(img):
     kernel_size = np.array([img.shape[dim] // 8 for dim in range(img.ndim)])
