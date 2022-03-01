@@ -23,6 +23,7 @@ def testing():
     images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
     results = ""
     complete_results = {}
+    thresholds_per_sample = {}
     for filename in images:
         img = io.imread(input_path + filename)
         #print("Otsu: ", threshold_multiotsu(img))
@@ -36,7 +37,10 @@ def testing():
         #hist_average(img, 5)
         position = testing_knee(img, log_hist=True)
         log_position = testing_knee(img)
-        calculate_high_threshold(img, position, 0.25, 0)
+        print("Sample", filename)
+        high_threshold = calculate_high_threshold(img, position, 0.25, 0)
+        thresholds_per_sample[filename] = high_threshold
+        print("Manual high thresholds. First", manual_Hysteresis[filename][0][1]*255, " Second", manual_Hysteresis[filename][1][1]*255)
         #histogram_density(img, position)
         '''low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
         log_low, log_high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=True)
@@ -74,6 +78,7 @@ def testing():
         #img = equalize_hist(img)
         #testing_knee(img, int(elbow_high))
     #print(complete_results)
+    print(thresholds_per_sample)
     for key, values in complete_results.items():
         print("Sample Results", key, "\nDetermined MAE: Normal=", values["Normal"][0][0], " Log=", values["Log"][0][0], "\nKnee MAE: Normal=", values["Normal"][0][1], " Log=", values["Log"][0][1])
 
@@ -194,26 +199,48 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
     old_voxels = np.sum(adjacency_array)
     initial_voxels = old_voxels
     progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
+    change_by_intensity = []
     for r in range(1, len(range_of_intensities), 1):
-        print("At intensity:", range_of_intensities[r])
-        for x in range(1, array_of_structures.shape[0]-1, 1):
-            for y in range(1, array_of_structures.shape[1] - 1, 1):
-                for z in range(1, array_of_structures.shape[2] - 1, 1):
-                    if array_of_structures[x, y, z] == r and np.any(adjacency_array[x-1:x+2, y-1:y+2, z-1:z+2]):
-                        adjacency_array[x, y, z] = 1
+        #print("At intensity:", range_of_intensities[r])
+        counter = 0
+        repeat = True
+        repeat_prior_voxels = old_voxels
+        while repeat:
+            for x in range(1, array_of_structures.shape[0]-1, 1):
+                for y in range(1, array_of_structures.shape[1] - 1, 1):
+                    for z in range(1, array_of_structures.shape[2] - 1, 1):
+                        if array_of_structures[x, y, z] == r and np.any(adjacency_array[x-1:x+2, y-1:y+2, z-1:z+2]):
+                            adjacency_array[x, y, z] = 1
+            repeat_new_voxels = np.sum(adjacency_array)
+            iterative_changes = (repeat_new_voxels-repeat_prior_voxels)/repeat_prior_voxels
+            '''if counter > 0:
+                print("Increase in voxels by", iterative_changes*100, " for repeat number", counter-1, " with", int(iterative_changes*repeat_prior_voxels), " new voxels")
+                print("New voxels", repeat_new_voxels, " prior voxels", repeat_prior_voxels)'''
+            if counter >= 9 or repeat_new_voxels == repeat_prior_voxels:
+                #print("Number of loops", counter)
+                repeat = False
+            repeat_prior_voxels = repeat_new_voxels
+            counter += 1
         new_voxels = np.sum(adjacency_array)
         change = (new_voxels/old_voxels) - 1
-        progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(change) + "and the total change is " + str((new_voxels - initial_voxels)/initial_voxels) + "\n"
+        progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(change) + " and the total change is " + str((new_voxels - initial_voxels)/initial_voxels) + "\n"
         if change <= stop_margin:
             print(progress)
             print("Stopped at ", range_of_intensities[r])
             return
         else:
             old_voxels = new_voxels
-
-    print("Stopping point not found")
+        change_by_intensity.append(change)
+    average_of_change = sum(change_by_intensity)/(len(range_of_intensities) - 1)
+    print("The average of the change in voxels is", average_of_change)
+    answer = 0
+    for cbi in range(0, len(change_by_intensity), 1):
+        if change_by_intensity[cbi] <= average_of_change:
+            print("The best threshold is at", range_of_intensities[cbi+1])
+            answer = range_of_intensities[cbi+1]
+            break
     print(progress)
-    return
+    return answer
 
 
 def recursive_intensity_steps(bottom, top, ratio):
