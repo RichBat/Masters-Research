@@ -1,6 +1,7 @@
 from os import listdir
 from os.path import isfile, join, exists
 
+import time
 import pandas as pd
 import math
 from sklearn.metrics import mean_absolute_error
@@ -14,8 +15,35 @@ from skimage.metrics import structural_similarity as ssim
 import cv2
 import numpy as np
 from knee_locator import KneeLocator
+from matplotlib.widgets import Slider
+from sklearn.metrics import mean_absolute_error
 
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif": [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif": [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif": [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif": [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif": [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif": [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif": [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif": [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif": [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif": [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1.tif": [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif": [[0.034, 0.097], [0.024, 0.1]]}
+
+def test_saved_images(substring = None):
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
+    reference_path = "C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\"
+    images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
+    reference_images = [f for f in listdir(reference_path) if isfile(join(reference_path, f))]
+    if substring != None:
+        reference_imgs = [ri for ri in reference_images if substring in ri]
+    else:
+        reference_imgs = reference_images
+    record = "Errors determined between manual images and automatic thresholding for:\n"
+    for src in images:
+        sample_name = src.split('.')[0]
+        references = [r for r in reference_imgs if sample_name in r]
+        src_img = io.imread(input_path + src)
+        record = record + "For sample " + src + "\n"
+        if len(references) > 0:
+            for ref in references:
+                ref_img = io.imread(reference_path + ref)
+                first_error, second_error = image_MAE(image=src_img, manual_parameters=manual_Hysteresis[src], reference_image=ref_img, reference_index=1)
+                record = record + "Richard Image Error: " + str(first_error) + " | Rensu Image Error: " + str(second_error) + "\n"
+    f = open(reference_path + "ImageMAE.txt", "a")
+    f.write(record)
+    f.close()
+
 
 def testing():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
@@ -24,25 +52,63 @@ def testing():
     results = ""
     complete_results = {}
     thresholds_per_sample = {}
+    output_of_results = ""
     for filename in images:
+        output_of_results += "Sample: " + filename
         img = io.imread(input_path + filename)
         #print("Otsu: ", threshold_multiotsu(img))
         kernel_size = np.array([img.shape[dim] // 8 for dim in range(img.ndim)])
         kernel_size[0] = img.shape[0]
-        p2, p98 = np.percentile(img, (2, 98))
         #position = testing_knee(img)
         #img = equalize_adapthist(img, kernel_size)
         #img = equalize_hist(img)
         #img = rescale_intensity(img, in_range=(p2, p98))
         #hist_average(img, 5)
-        position = testing_knee(img, log_hist=True)
-        log_position = testing_knee(img)
         print("Sample", filename)
-        high_threshold = calculate_high_threshold(img, position, 0.25, 0)
-        thresholds_per_sample[filename] = high_threshold
-        print("Manual high thresholds. First", manual_Hysteresis[filename][0][1]*255, " Second", manual_Hysteresis[filename][1][1]*255)
+        position = testing_knee(img, log_hist=True)
+        low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
+        print("Kneedle low:", position, " Determined low:", low*255)
+        #density_evaluate(position, img)
+        output_of_results = output_of_results + " with a low threshold of " + str(position) + "\n"
+        log_position = testing_knee(img)
+        high_thresholds = []
+        full_run = False
+
+        if full_run:
+            #hysteresis_high_preview = preview_hysteresis_high(img, position)
+            #io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "Preview.tif", hysteresis_high_preview)
+            for density in range(15, 26, 5):
+                for precision in range(5, 11, 5):
+                    resolution = precision/100
+                    end_voxels = density/100
+                    #high_threshold_fixed = calculate_high_threshold(img, position, end_voxels, 0, 0.05, False)
+                    high_threshold_stretching = calculate_high_threshold(img, position, end_voxels, 0, resolution, True)
+                    #high_threshold = 60
+                    high_thresholds.append([high_threshold_stretching])
+                    #fixed_thresholded_img = hysteresis_thresholding_stack(img, position, high_threshold_fixed).astype('uint8')*np.max(img)
+                    stretched_thresholded_img =  hysteresis_thresholding_stack(img, position, high_threshold_stretching).astype('uint8')*np.max(img)
+                    #print(np.max(thresholded_img))
+                    #io.imshow(thresholded_img[1])
+                    #plt.show()
+                    #io.imshow(img[1])
+                    #plt.show()
+                    zero_array = np.zeros_like(stretched_thresholded_img)
+                    #fixed_overlayed_img = np.stack((img, fixed_thresholded_img, zero_array), axis=-1)
+                    stretched_overlayed_img = np.stack((img, stretched_thresholded_img, zero_array), axis=-1)
+                    first_img = hysteresis_thresholding_stack(img, manual_Hysteresis[filename][0][0]*255, manual_Hysteresis[filename][0][1]*255)
+                    second_img = hysteresis_thresholding_stack(img, manual_Hysteresis[filename][1][0]*255, manual_Hysteresis[filename][1][1]*255)
+                    threshold_compared = np.stack((second_img, first_img, stretched_thresholded_img), axis=-1)
+                    #print(overlayed_img.shape)
+                    #io.imshow(overlayed_img[1])
+                    #plt.show()
+                    #io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "highThresh" + str(high_threshold_fixed) + "OverlayedFixed.tif", fixed_overlayed_img)
+                    io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "resolution" + str(resolution*100) + "highThresh" + str(high_threshold_stretching) + "Overlayed.tif", stretched_overlayed_img)
+                    io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "resolution" + str(resolution * 100) + "highThresh" + str(high_threshold_stretching) + "Compared.tif", threshold_compared)
+                    output_of_results = output_of_results + "Density of " + str(density) + " provides a stretched threshold of " + str(high_threshold_stretching) + " at a resolution of " + str(resolution*100) + "\n"
+            thresholds_per_sample[filename] = high_thresholds
+            print("Manual high thresholds. First", manual_Hysteresis[filename][0][1]*255, " Second", manual_Hysteresis[filename][1][1]*255)
         #histogram_density(img, position)
-        '''low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
+        '''
         log_low, log_high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=True)
         results = hist_threshold_differences(filename, low, position, img)
         log_results = hist_threshold_differences(filename, log_low, log_position, img)
@@ -77,10 +143,16 @@ def testing():
         print("Saved histogram")'''
         #img = equalize_hist(img)
         #testing_knee(img, int(elbow_high))
-    #print(complete_results)
     print(thresholds_per_sample)
+
+    f = open(output_path + "densityVariationResults.txt", "a")
+    f.write(output_of_results)
+    f.close()
+
+    #print(complete_results)
     for key, values in complete_results.items():
         print("Sample Results", key, "\nDetermined MAE: Normal=", values["Normal"][0][0], " Log=", values["Log"][0][0], "\nKnee MAE: Normal=", values["Normal"][0][1], " Log=", values["Log"][0][1])
+
 
 def get_high(low, ratio):
     return (255 - (255 - low)/ratio)
@@ -158,7 +230,7 @@ def check_neighbouring_voxels(current_threshold, img, decay_rate=0.1):
                     total_neighbours += results.sum()
     return total_neighbours, number_of_core
 
-def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.1):
+def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.1, percentile=True):
     '''
     - low is used to remove the low intensity and noise voxels which will greatly skew the density
     - start_density to acquire the high intensity threshold starting point. Voxels above this intensity are within this ratio
@@ -167,8 +239,9 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
     - decay_rate is the rate at which the threshold value reduces by for each neighbouring check
     '''
     voxels_by_intensity, intensities = histogram(img, nbins=256) #This acquires the voxels at each intensity and the intensity at each element
-    voxels_by_intensity = voxels_by_intensity[low:]
-    intensities = intensities[low:]
+    low_index = np.where(intensities == low)[0][0]
+    voxels_by_intensity = voxels_by_intensity[low_index:]
+    intensities = intensities[low_index:]
     img = np.pad(img, 1)
     #Now the majority of low intensity and noise voxels are discarded
     template_compare_array = np.zeros_like(img) + 1  # Array of 1's which can be multiplied by each threshold
@@ -182,14 +255,24 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
             break
 
     #Now the starting high threshold has been acquired the rest can begin
-
-    range_of_intensities = recursive_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
-    range_of_intensities.insert(0, starting_intensity)
+    if percentile:
+        range_of_intensities = recursive_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
+        range_of_intensities.insert(0, starting_intensity)
+    else:
+        range_of_intensities = fixed_intensity_steps(low, starting_intensity, decay_rate)
+        if len(range_of_intensities) == 0:
+            return 0
+        if range_of_intensities[0] != starting_intensity:
+            range_of_intensities.insert(0, starting_intensity)
     array_of_structures = np.zeros_like(img)
+
+    range_of_intensities_time_start = time.process_time()
     for i in range_of_intensities:
         compare_array = template_compare_array * i
         results = np.greater_equal(img, compare_array).astype(int)
         array_of_structures = array_of_structures + results
+    range_of_intensities_time_end = time.process_time()
+    print("Time taken for intensity discretisation:", range_of_intensities_time_end-range_of_intensities_time_start)
 
     #array_of_structures an array of ints. The voxel values are proportional to the number of intensities from range_of_intensities that the voxel is greater than/equal to
     print("Range of intensities:", range_of_intensities)
@@ -205,7 +288,10 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
         counter = 0
         repeat = True
         repeat_prior_voxels = old_voxels
+        neighbour_validation_time_start = time.process_time()
+        time_per_repeat = []
         while repeat:
+            repeat_time_start = time.process_time()
             for x in range(1, array_of_structures.shape[0]-1, 1):
                 for y in range(1, array_of_structures.shape[1] - 1, 1):
                     for z in range(1, array_of_structures.shape[2] - 1, 1):
@@ -221,6 +307,8 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
                 repeat = False
             repeat_prior_voxels = repeat_new_voxels
             counter += 1
+            repeat_time_end = time.process_time()
+            time_per_repeat.append(repeat_time_start-repeat_time_end)
         new_voxels = np.sum(adjacency_array)
         change = (new_voxels/old_voxels) - 1
         progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(change) + " and the total change is " + str((new_voxels - initial_voxels)/initial_voxels) + "\n"
@@ -231,6 +319,9 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
         else:
             old_voxels = new_voxels
         change_by_intensity.append(change)
+        neighbour_validation_time_end = time.process_time()
+        print("Time taken for intensity", range_of_intensities[r], " took", neighbour_validation_time_end-neighbour_validation_time_start)
+        print("Time per repeat", time_per_repeat)
     average_of_change = sum(change_by_intensity)/(len(range_of_intensities) - 1)
     print("The average of the change in voxels is", average_of_change)
     answer = 0
@@ -242,6 +333,15 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
     print(progress)
     return answer
 
+def fixed_intensity_steps(bottom, top, ratio):
+    steps = []
+    step_size = int((top - bottom) * ratio)
+    if step_size == 0:
+        print("Step_size is 0", top, bottom)
+        return steps
+    for step in range(top, bottom, -1 * step_size):
+        steps.append(step)
+    return steps
 
 def recursive_intensity_steps(bottom, top, ratio):
     new_intensity = int(top * (1 - ratio)) #this will reduce top by 10%
@@ -252,7 +352,13 @@ def recursive_intensity_steps(bottom, top, ratio):
             steps.append(r)
     return steps
 
-
+def density_evaluate(low, img):
+    counts, centers = histogram(img)
+    low_index = np.where(centers == low)[0][0]
+    counts = counts[low_index:]
+    centers = centers[low_index:]
+    plt.plot(centers, counts, color='black')
+    plt.show()
 
 def hist_compare(img):
     kernel_size = np.array([img.shape[dim] // 8 for dim in range(img.ndim)])
@@ -342,7 +448,7 @@ def testing_knee(img, cutoff = 1, log_hist=False):
     plt.show()'''
 
     locator = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing")
-    knee = locator.knee
+    knee = int(locator.norm_knee*255)
     #print("knees: ", locator.all_knees, " knee heights: ", locator.all_knees_y)
 
 
@@ -351,6 +457,38 @@ def testing_knee(img, cutoff = 1, log_hist=False):
     #knee = int(locator.norm_knee*255)
 
     return knee
+
+def image_compare():
+    raw_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisDatatoReview\\"
+    images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
+    samples = [f.split(sep="density")[0]+".tif" for f in listdir(input_path) if isfile(join(input_path, f))]
+    results = {}
+    for s in range(0, len(samples), 1):
+        first_mse_results = []
+        second_mse_results = []
+        average_mse_results = []
+        manual_diffs = []
+        if isfile(join(raw_path, samples[s])):
+            raw_img = io.imread(raw_path + samples[s])
+            estimate_image = io.imread(input_path + images[s]).astype('uint8')
+            parameters = manual_Hysteresis[samples[s]]
+            first_img = hysteresis_thresholding_stack(raw_img, parameters[0][0]*255, parameters[0][1]*255).astype('uint8')
+            second_img = hysteresis_thresholding_stack(raw_img, parameters[1][0]*255, parameters[1][1]*255).astype('uint8')
+            average_img = image_average(raw_img, parameters).astype('uint8')
+            first_mse_result = (mse(estimate_image/np.max(estimate_image), first_img/np.max(first_img)))
+            second_mse_result = (mse(estimate_image/np.max(estimate_image), second_img/np.max(second_img)))
+            average_mse_result = (mse(estimate_image/np.max(estimate_image), average_img/np.max(average_img)))
+            manual_diff = (mse(first_img/np.max(first_img), second_img/np.max(second_img)))
+            first_mse_results.append(first_mse_result)
+            second_mse_results.append(second_mse_result)
+            average_mse_results.append(average_mse_result)
+            manual_diffs.append(manual_diff)
+            print("Results for", images[s], " first MSE result", first_mse_result, " second MSE result", second_mse_result, " average MSE results", average_mse_result, " error between manual", manual_diff)
+        results[images[s]] = [first_mse_results, second_mse_results, average_mse_results, manual_diffs]
+    print(results)
+
+
 
 def main():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\Threshold Test Data\\Input Data\\"
@@ -398,6 +536,18 @@ def main():
 
     record.close()
     return
+
+def image_MAE(image, manual_parameters, reference_image, reference_index):
+    first_image = apply_hysteresis_threshold(image, manual_parameters[0][0]*255, manual_parameters[0][1]*255) #Image from my (Richard) parameters
+    second_image = apply_hysteresis_threshold(image, manual_parameters[1][0]*255, manual_parameters[1][1]*255) #Image from Rensu's parameters
+    automatic_threshold = reference_image[:,:,:,reference_index]
+    automatic_threshold = automatic_threshold/np.max(automatic_threshold)
+    first_image_error = np.sum(np.abs(first_image - automatic_threshold))/max(np.sum(first_image), np.sum(automatic_threshold))
+    second_image_error = np.sum(np.abs(first_image - automatic_threshold))/max(np.sum(first_image), np.sum(automatic_threshold))
+    #print("First Error", np.sum(np.abs(second_image - automatic_threshold))/max(np.sum(second_image), np.sum(automatic_threshold)))
+    #print("Original First Error", first_image_error)
+    return first_image_error, second_image_error
+
 
 def hist_threshold_differences(sample_name, determined_low, kneedle_low, image = False):
     determined_high = (0.5 + determined_low*0.5)
@@ -455,7 +605,7 @@ def hist_threshold_differences(sample_name, determined_low, kneedle_low, image =
         plt.show()'''
     return MAE_results
 
-def image_average(input_image, parameters, thresh_type):
+def image_average(input_image, parameters, thresh_type=False):
     thresholded_images = []
     value1 = 0
     value2 = 0
@@ -677,10 +827,6 @@ def detectElbows(img, movingAverageFrame=20, elbowSize=10):
         return distances[maximum_values][0].astype(int), True
     return 0, False
 
-
-
-
-
 def elbowGradientCheck(intensity1, intensity2, position1, position2):
     if (position1 - position2) == 0:
         print("Divide by zero warning:", position1)
@@ -691,7 +837,20 @@ def elbowGradientCheck(intensity1, intensity2, position1, position2):
         print("Ydelta:", (intensity1 - intensity2), "Xdelta:", (position1 - position2))
         return False
 
+def preview_hysteresis_high(img, low):
+    total_array = np.zeros_like(img)
+    print("Building Preview")
+    for i in range(np.max(img), low, -1):
+        print("Intensity", i)
+        threshold = hysteresis_thresholding_stack(img, low, i)
+        total_array += threshold
+    total_array[total_array > 0] += low #low offset for all non-zero elements so that the voxels can be correctly evaluated by intensity value
+    return total_array
+
+
 
 if __name__ == "__main__":
     #main()
-    testing()
+    #testing()
+    #image_compare()
+    test_saved_images("Overlayed")
