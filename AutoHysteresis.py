@@ -17,6 +17,7 @@ import numpy as np
 from knee_locator import KneeLocator
 from matplotlib.widgets import Slider
 from sklearn.metrics import mean_absolute_error
+import sample_checker
 
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif": [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif": [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif": [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif": [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif": [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif": [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif": [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif": [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif": [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif": [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1.tif": [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif": [[0.034, 0.097], [0.024, 0.1]]}
 
@@ -39,8 +40,8 @@ def test_saved_images(substring = None):
             for ref in references:
                 ref_img = io.imread(reference_path + ref)
                 first_error, second_error = image_MAE(image=src_img, manual_parameters=manual_Hysteresis[src], reference_image=ref_img, reference_index=1)
-                record = record + "Richard Image Error: " + str(first_error) + " | Rensu Image Error: " + str(second_error) + "\n"
-    f = open(reference_path + "ImageMAE.txt", "a")
+                record = record + ref + ": Richard Image Error = " + str(first_error) + " | Rensu Image Error = " + str(second_error) + "\n"
+    f = open(reference_path + "ImageMAE.txt", "w")
     f.write(record)
     f.close()
 
@@ -53,6 +54,10 @@ def testing():
     complete_results = {}
     thresholds_per_sample = {}
     output_of_results = ""
+    noisy_image_results = ""
+    failed_variants = ""
+    total_time_per_option = [0, 0]
+    print(images)
     for filename in images:
         output_of_results += "Sample: " + filename
         img = io.imread(input_path + filename)
@@ -66,27 +71,62 @@ def testing():
         #hist_average(img, 5)
         print("Sample", filename)
         position = testing_knee(img, log_hist=True)
-        low, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
-        print("Kneedle low:", position, " Determined low:", low*255)
+        #low1, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=3, log_value=False)
+        #low2, high = determine_hysteresis_thresholds(img, moving_average_frame=30, cut_off_slope=3, log_value=False)
+        #low3, high = determine_hysteresis_thresholds(img, moving_average_frame=20, cut_off_slope=4, log_value=False)
+        #print("Kneedle low:", position, " Determined low:", low1*255)
+        disqualified_list = ""
+        if(manual_Hysteresis[filename][0][1] < position or manual_Hysteresis[1][1] < position):
+            disqualified_list += filename + "\n"
         #density_evaluate(position, img)
-        output_of_results = output_of_results + " with a low threshold of " + str(position) + "\n"
-        log_position = testing_knee(img)
+        #output_of_results = output_of_results + " with a low threshold of " + str(position) + "and a determined low of" + str(low1*255) + " " + str(low2*255) + " " + str(low3*255) + "\n"
+        #log_position = testing_knee(img)
         high_thresholds = []
-        full_run = False
-
+        full_run = True
+        noisy_image_results = noisy_image_results + "Sample: " + filename + "\n"
         if full_run:
             #hysteresis_high_preview = preview_hysteresis_high(img, position)
             #io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "Preview.tif", hysteresis_high_preview)
-            for density in range(15, 26, 5):
-                for precision in range(5, 11, 5):
+            for density in range(25, 26, 5):
+                for precision in range(15, 16, 5):
                     resolution = precision/100
                     end_voxels = density/100
                     #high_threshold_fixed = calculate_high_threshold(img, position, end_voxels, 0, 0.05, False)
-                    high_threshold_stretching = calculate_high_threshold(img, position, end_voxels, 0, resolution, True)
+                    noise_adjustment = sample_checker.ThresholdOutlierDetector(input_path, filename)
+                    print("Starting noise variations")
+                    for noise_ratio in range(0, 100, 25):
+                        noisy_image = noise_adjustment.generate_noisy_image(noise_ratio/100)
+                        position = testing_knee(noisy_image, log_hist=True)
+                        print(output_path+filename.split('.')[0]+"noise"+str(noise_ratio)+".tif")
+                        try:
+                            save_hist(noisy_image, position, end_voxels, output_path+filename.split('.')[0]+"noise"+str(noise_ratio)+"Hist.tif")
+                        except Exception as err:
+                            print(err)
+                            print("Histogram saving failed for", filename + " noise"+str(noise_ratio))
+                        for option in [True, False]:
+                            try:
+                                high_threshold_stretching, runtime = calculate_high_threshold(noisy_image, position, end_voxels, 0, resolution, True, option)
+                                if option:
+                                    total_time_per_option[0] += runtime
+                                    print("\tFor sample: " + filename + " with " + str(noise_ratio) + " noise "
+                                          + str(runtime) + " seconds were taken")
+                                else:
+                                    total_time_per_option[1] += runtime
+                                    print("\tFor sample: " + filename + " with " + str(noise_ratio) + " noise " + str(
+                                        runtime) + " seconds were taken")
+                                valid_threshold, threshold_voxels, otsu_voxels = noise_adjustment.outlierDetection(high_threshold_stretching)
+                                noisy_image_results = noisy_image_results + "\tEfficient: " + str(option) + "Noise Ratio: " + \
+                                                      str(noise_ratio/10) + " Sufficient Voxels? " + str(valid_threshold) + \
+                                                      " Threshold Voxels: " + str(threshold_voxels) + " Otsu Voxels: " + str(otsu_voxels) + "\n"
+                                print("Noise variation completed for sample", filename, "ratio at", noise_ratio/10)
+                            except Exception as error:
+                                failed_variants = failed_variants + "Sample: " + filename + " Noise: " + str(noise_ratio) + "\n"
+                                print(error)
+
                     #high_threshold = 60
                     high_thresholds.append([high_threshold_stretching])
                     #fixed_thresholded_img = hysteresis_thresholding_stack(img, position, high_threshold_fixed).astype('uint8')*np.max(img)
-                    stretched_thresholded_img =  hysteresis_thresholding_stack(img, position, high_threshold_stretching).astype('uint8')*np.max(img)
+                    stretched_thresholded_img =  hysteresis_thresholding_stack(img, position, high_threshold_stretching).astype('uint8')*255
                     #print(np.max(thresholded_img))
                     #io.imshow(thresholded_img[1])
                     #plt.show()
@@ -95,15 +135,15 @@ def testing():
                     zero_array = np.zeros_like(stretched_thresholded_img)
                     #fixed_overlayed_img = np.stack((img, fixed_thresholded_img, zero_array), axis=-1)
                     stretched_overlayed_img = np.stack((img, stretched_thresholded_img, zero_array), axis=-1)
-                    first_img = hysteresis_thresholding_stack(img, manual_Hysteresis[filename][0][0]*255, manual_Hysteresis[filename][0][1]*255)
-                    second_img = hysteresis_thresholding_stack(img, manual_Hysteresis[filename][1][0]*255, manual_Hysteresis[filename][1][1]*255)
+                    first_img = hysteresis_thresholding_stack(img, manual_Hysteresis[filename][0][0]*255, manual_Hysteresis[filename][0][1]*255).astype('uint8')*255
+                    second_img = hysteresis_thresholding_stack(img, manual_Hysteresis[filename][1][0]*255, manual_Hysteresis[filename][1][1]*255).astype('uint8')*255
                     threshold_compared = np.stack((second_img, first_img, stretched_thresholded_img), axis=-1)
                     #print(overlayed_img.shape)
                     #io.imshow(overlayed_img[1])
                     #plt.show()
                     #io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "highThresh" + str(high_threshold_fixed) + "OverlayedFixed.tif", fixed_overlayed_img)
-                    io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "resolution" + str(resolution*100) + "highThresh" + str(high_threshold_stretching) + "Overlayed.tif", stretched_overlayed_img)
-                    io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "resolution" + str(resolution * 100) + "highThresh" + str(high_threshold_stretching) + "Compared.tif", threshold_compared)
+                    #io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "resolution" + str(resolution*100) + "highThresh" + str(high_threshold_stretching) + "Overlayed.tif", stretched_overlayed_img)
+                    #io.imsave(output_path + '.'.join(filename.split(sep=".")[:-1]) + "density" + str(density) + "resolution" + str(resolution * 100) + "highThresh" + str(high_threshold_stretching) + "Compared.tif", threshold_compared)
                     output_of_results = output_of_results + "Density of " + str(density) + " provides a stretched threshold of " + str(high_threshold_stretching) + " at a resolution of " + str(resolution*100) + "\n"
             thresholds_per_sample[filename] = high_thresholds
             print("Manual high thresholds. First", manual_Hysteresis[filename][0][1]*255, " Second", manual_Hysteresis[filename][1][1]*255)
@@ -145,14 +185,44 @@ def testing():
         #testing_knee(img, int(elbow_high))
     print(thresholds_per_sample)
 
-    f = open(output_path + "densityVariationResults.txt", "a")
+    print("Times", total_time_per_option)
+
+    h = open(output_path + "NoiseVariationComparison.txt", "w")
+    h.write(noisy_image_results)
+    h.close()
+
+    f = open(output_path + "densityVariationResults.txt", "w")
     f.write(output_of_results)
     f.close()
+
+    g = open(output_path + "disqualified_samples.txt", "w")
+    g.write(disqualified_list)
+    g.close()
+
+    m = open(output_path + "failed_samples.txt", "w")
+    m.write(failed_variants)
+    m.close()
 
     #print(complete_results)
     for key, values in complete_results.items():
         print("Sample Results", key, "\nDetermined MAE: Normal=", values["Normal"][0][0], " Log=", values["Log"][0][0], "\nKnee MAE: Normal=", values["Normal"][0][1], " Log=", values["Log"][0][1])
 
+def save_hist(img, low, population, save_path):
+    counts, centers = histogram(img)
+    low_index = np.where(centers == low)[0][0]
+    counts = counts[low_index:]
+    centers = centers[low_index:]
+    total_population = counts.sum()
+    initial_density = int(total_population*population)
+    starting_intensity = 0
+    for intensity in range(len(counts), 0, -1):
+        if np.sum(counts[intensity:]) >= initial_density:
+            starting_intensity = centers[intensity]
+            break
+    plt.plot(centers, counts, color='black')
+    plt.axvline(low, 0, 1, label='Low', color="red")
+    plt.axvline(starting_intensity, 0, 1, label='High', color="blue")
+    plt.savefig(save_path)
 
 def get_high(low, ratio):
     return (255 - (255 - low)/ratio)
@@ -230,7 +300,7 @@ def check_neighbouring_voxels(current_threshold, img, decay_rate=0.1):
                     total_neighbours += results.sum()
     return total_neighbours, number_of_core
 
-def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.1, percentile=True):
+def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.1, percentile=True, faster=True):
     '''
     - low is used to remove the low intensity and noise voxels which will greatly skew the density
     - start_density to acquire the high intensity threshold starting point. Voxels above this intensity are within this ratio
@@ -238,6 +308,7 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
     where reference will either be the prior voxels retained or the total voxels retained. The ratio needs to be decided
     - decay_rate is the rate at which the threshold value reduces by for each neighbouring check
     '''
+    print("Calculation beginning", low)
     voxels_by_intensity, intensities = histogram(img, nbins=256) #This acquires the voxels at each intensity and the intensity at each element
     low_index = np.where(intensities == low)[0][0]
     voxels_by_intensity = voxels_by_intensity[low_index:]
@@ -283,6 +354,9 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
     initial_voxels = old_voxels
     progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
     change_by_intensity = []
+    nditer_time_total = 0
+    inefficient_time_total = 0
+    time_total = 0
     for r in range(1, len(range_of_intensities), 1):
         #print("At intensity:", range_of_intensities[r])
         counter = 0
@@ -290,7 +364,7 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
         repeat_prior_voxels = old_voxels
         neighbour_validation_time_start = time.process_time()
         time_per_repeat = []
-        while repeat:
+        '''while repeat:
             repeat_time_start = time.process_time()
             for x in range(1, array_of_structures.shape[0]-1, 1):
                 for y in range(1, array_of_structures.shape[1] - 1, 1):
@@ -299,16 +373,48 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
                             adjacency_array[x, y, z] = 1
             repeat_new_voxels = np.sum(adjacency_array)
             iterative_changes = (repeat_new_voxels-repeat_prior_voxels)/repeat_prior_voxels
-            '''if counter > 0:
+            ''''''if counter > 0:
                 print("Increase in voxels by", iterative_changes*100, " for repeat number", counter-1, " with", int(iterative_changes*repeat_prior_voxels), " new voxels")
-                print("New voxels", repeat_new_voxels, " prior voxels", repeat_prior_voxels)'''
+                print("New voxels", repeat_new_voxels, " prior voxels", repeat_prior_voxels)''''''
             if counter >= 9 or repeat_new_voxels == repeat_prior_voxels:
                 #print("Number of loops", counter)
                 repeat = False
             repeat_prior_voxels = repeat_new_voxels
             counter += 1
             repeat_time_end = time.process_time()
-            time_per_repeat.append(repeat_time_start-repeat_time_end)
+            time_per_repeat.append(repeat_time_start-repeat_time_end)'''
+        if faster:
+            nditer_time_start = time.process_time()
+            it = np.nditer(array_of_structures, flags=['multi_index'])
+            reverse_it = np.nditer(np.flip(array_of_structures), flags=['multi_index'])
+            for ele in it:
+                z = it.multi_index[0]
+                y = it.multi_index[1]
+                x = it.multi_index[2]
+                if ele == r and np.any(adjacency_array[z - 1:z + 2, y - 1:y + 2, x - 1:x + 2]):
+                    adjacency_array[z, y, x]
+            for r_ele in reverse_it:
+                z = reverse_it.multi_index[0]
+                y = reverse_it.multi_index[1]
+                x = reverse_it.multi_index[2]
+                if r_ele == r and np.any(adjacency_array[z - 1:z + 2, y - 1:y + 2, x - 1:x + 2]):
+                    adjacency_array[z, y, x]
+            time_total += time.process_time() - nditer_time_start
+        else:
+            inefficient_time_start = time.process_time()
+            for x in range(1, array_of_structures.shape[0]-1, 1):
+                for y in range(1, array_of_structures.shape[1] - 1, 1):
+                    for z in range(1, array_of_structures.shape[2] - 1, 1):
+                        if array_of_structures[x, y, z] == r and np.any(adjacency_array[x-1:x+2, y-1:y+2, z-1:z+2]):
+                            adjacency_array[x, y, z] = 1
+            for x in range(array_of_structures.shape[0] - 1, 1, -1):
+                for y in range(array_of_structures.shape[1] - 1, 1, -1):
+                    for z in range(array_of_structures.shape[2] - 1, 1, -1):
+                        if array_of_structures[x, y, z] == r and np.any(
+                                adjacency_array[x - 1:x + 2, y - 1:y + 2, z - 1:z + 2]):
+                            adjacency_array[x, y, z] = 1
+            time_total += time.process_time() - inefficient_time_start
+        #The double for loop above should capture sufficient voxels compared to the while loop as that would repeat loops to the right to build structures to the left
         new_voxels = np.sum(adjacency_array)
         change = (new_voxels/old_voxels) - 1
         progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(change) + " and the total change is " + str((new_voxels - initial_voxels)/initial_voxels) + "\n"
@@ -331,7 +437,7 @@ def calculate_high_threshold(img, low, start_density, stop_margin, decay_rate=0.
             answer = range_of_intensities[cbi+1]
             break
     print(progress)
-    return answer
+    return answer, time_total
 
 def fixed_intensity_steps(bottom, top, ratio):
     steps = []
@@ -432,6 +538,7 @@ def hist_average(img, movingAverageFrame = 20):
     plt.show()
 
 def testing_knee(img, cutoff = 1, log_hist=False):
+    print("Histogram for knee")
     counts, centers = histogram(img, nbins=256)
     counts = counts[cutoff:]
     #print("Final Counts: ", counts[-20:-1])
@@ -443,12 +550,14 @@ def testing_knee(img, cutoff = 1, log_hist=False):
     plt.plot(centers, counts, color='black')
     plt.xlabel("Intensity")
     plt.ylabel("Count")
-    plt.title("The automatically calculated hysteresis thresholding values")
+    plt.title("Histogram")
     plt.tight_layout()
     plt.show()'''
 
     locator = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing")
-    knee = int(locator.norm_knee*255)
+    print("Norm Knee", locator.norm_knee*255)
+    print("Standard Knee", locator.knee)
+    knee = int(locator.knee)
     #print("knees: ", locator.all_knees, " knee heights: ", locator.all_knees_y)
 
 
@@ -542,8 +651,8 @@ def image_MAE(image, manual_parameters, reference_image, reference_index):
     second_image = apply_hysteresis_threshold(image, manual_parameters[1][0]*255, manual_parameters[1][1]*255) #Image from Rensu's parameters
     automatic_threshold = reference_image[:,:,:,reference_index]
     automatic_threshold = automatic_threshold/np.max(automatic_threshold)
-    first_image_error = np.sum(np.abs(first_image - automatic_threshold))/max(np.sum(first_image), np.sum(automatic_threshold))
-    second_image_error = np.sum(np.abs(first_image - automatic_threshold))/max(np.sum(first_image), np.sum(automatic_threshold))
+    first_image_error = np.average(np.abs(first_image - automatic_threshold))
+    second_image_error = np.average(np.abs(second_image - automatic_threshold))
     #print("First Error", np.sum(np.abs(second_image - automatic_threshold))/max(np.sum(second_image), np.sum(automatic_threshold)))
     #print("Original First Error", first_image_error)
     return first_image_error, second_image_error
@@ -851,6 +960,8 @@ def preview_hysteresis_high(img, low):
 
 if __name__ == "__main__":
     #main()
-    #testing()
+    time_start = time.process_time()
+    testing()
+    print("In total took ", time.process_time() - time_start)
     #image_compare()
-    test_saved_images("Overlayed")
+    #test_saved_images("Overlayed")
