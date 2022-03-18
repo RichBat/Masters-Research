@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import math
 from skimage import data, io
-from skimage.filters import apply_hysteresis_threshold, threshold_otsu
+from skimage.filters import apply_hysteresis_threshold, threshold_otsu, gaussian
 from skimage.exposure import histogram
 import matplotlib.pyplot as plt
 import cv2
@@ -27,14 +27,19 @@ def testing():
         print("Hist of original image:", filename)
         #show_hist(img)
         noise_adjustment = sample_checker.ThresholdOutlierDetector(input_path, filename)
+        noise_adjustment_p = sample_checker.ThresholdOutlierDetector(input_path, filename, 'poisson')
         results_record = results_record + "Sample=" + filename + "\n"
-        for noise_ratio in range(80, 101, 20):
+        for noise_ratio in range(60, 101, 20):
             print("Noise percentage", noise_ratio)
             noise_variant_time = time.process_time()
             noisy_image = noise_adjustment.generate_noisy_image(noise_ratio / 100)
+            noisy_image_p = noise_adjustment_p.generate_noisy_image(noise_ratio / 100)
             low_thresh = testing_knee(noisy_image, cutoff=1, log_hist=True)
+            print("Poisson Noise Test:")
+            print("Poisson Noise Low Thresh", testing_knee(noisy_image_p, cutoff=1, log_hist=True))
+            print("---------------------------------------")
             print("Sample:", filename, "Low threshold:", low_thresh)
-            show_hist(noisy_image, low_thresh, 0.25)
+            #show_hist(noisy_image, low_thresh, 0.25)
             loop_time = time.process_time()
             high_thresh = high_threshold_nested(noisy_image, low_thresh, 0.25, 0.1)
             print("Time for high thresh:", time.process_time() - loop_time)
@@ -287,6 +292,14 @@ def recursive_intensity_steps(bottom, top, ratio):
 def testing_knee(img, cutoff = 1, log_hist=False):
     #print("Histogram for knee")
     counts, centers = histogram(img, nbins=256)
+
+    gaussian_image = gaussian(img)
+    rescaled_gaussian_image = (gaussian_image/np.max(gaussian_image))*np.max(img)
+    print("Rescaled Gaussian Otsu", threshold_otsu(rescaled_gaussian_image))
+    norm_gaussian = (gaussian_image/np.max(gaussian_image))*np.max(img)
+    gaussian_counts, gaussian_centers = histogram(norm_gaussian, nbins=256)
+    gaussian_counts, gaussian_centers = ((gaussian_counts/np.max(gaussian_counts))*np.max(counts)).astype('int'), ((gaussian_centers / np.max(gaussian_centers)) * np.max(centers)).astype('int')
+
     if cutoff < centers[0]:
         cut = 1
     else:
@@ -296,39 +309,55 @@ def testing_knee(img, cutoff = 1, log_hist=False):
     #print("Final Counts: ", counts[-20:-1])
     if log_hist:
         counts = np.where(counts != 0, np.log10(counts), 0)
+        gaussian_counts = np.where(gaussian_counts != 0, np.log10(gaussian_counts), 0)
     #print(centers.shape)
-
+    '''
     plt.figure(figsize=(6, 6))
     plt.plot(centers, counts, color='black')
     plt.xlabel("Intensity")
     plt.ylabel("Count")
     plt.title("Histogram")
     plt.tight_layout()
-    plt.show()
+    plt.show()'''
 
     safe_knee = True
     otsu_thresh = threshold_otsu(img)
     print("Otsu Thresh:", otsu_thresh)
+    print("Otsu of Guassian", threshold_otsu(norm_gaussian))
+    gaussian_otsu = threshold_otsu(norm_gaussian)
+    true_knee = 0
+    knee_found = True
+
     while safe_knee:
         locator = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing")
+        glocator = KneeLocator(x=gaussian_centers, y=gaussian_counts, curve="convex", direction="decreasing")
         knee = int(locator.knee)
-        if knee < otsu_thresh:
-            print("Determined knee", knee)
-            print(centers[0])
+        gaussian_knee = int(glocator.knee)
+        if knee > otsu_thresh and knee_found:
+            true_knee = knee
+            knee_found = False
+            print("True Knee", true_knee)
+        if knee < otsu_thresh or gaussian_knee < gaussian_otsu:
+            print("Determined knee", knee, gaussian_knee)
+            print("Standard Intensity", centers[0])
+            print("Gaussian Intensity", gaussian_centers[0])
             centers = centers[1:]
             counts = counts[1:]
+            gaussian_centers = gaussian_centers[1:]
+            gaussian_counts = gaussian_counts[1:]
         else:
             safe_knee = False
-            print(centers[0])
+            print("Final Standard Intensity", centers[0])
+            print("Final Gaussian Intensity", gaussian_centers[0])
 
-    print("knees: ", locator.all_knees)
+    print("knees: ", locator.all_knees, glocator.all_knees)
 
 
     #locator.plot_knee()
     #plt.show()
     #knee = int(locator.norm_knee*255)
 
-    return knee
+    return true_knee
 
 def hysteresis_thresholding_stack(stack, low=0.25, high=0.7): #Also from Rensu
     return apply_hysteresis_threshold(stack, low, high)
