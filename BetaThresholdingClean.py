@@ -38,7 +38,9 @@ def testing():
             "Hyst_Voxels": None,
             "Filter_Voxels": None,
             "Sufficient": None,
-            "All Filter Thresh": None
+            "All Filter Thresh": None,
+            "Voxels per intensity": None,
+            "Voxels changes": None
         }
         img = io.imread(input_path + filename)
         print("Hist of original image:", filename)
@@ -85,10 +87,13 @@ def testing():
             for prec in range(5, 16, 5):
                 precision = prec/100
                 json_sample_results = addResultsToDictionary(json_sample_results, "Precision", precision)
-                high_thresh = high_threshold_nested(img, low_thresh, 0.25, precision)
+                high_thresh, voxels_per_intensity = high_threshold_nested(img, low_thresh, 0.25, precision)
+                voxel_changes = change_between_intensities(voxels_per_intensity)
                 json_sample_results = addResultsToDictionary(json_sample_results, "High_Thresh", float(high_thresh))
+                json_sample_results = addResultsToDictionary(json_sample_results, "Voxels per intensity", voxels_per_intensity)
+                json_sample_results = addResultsToDictionary(json_sample_results, "Voxels changes", voxel_changes)
                 if calculate_original:
-                    original_high = high_threshold_nested(img, original_low, 0.25, precision)
+                    original_high, voxels_per_intensity = high_threshold_nested(img, original_low, 0.25, precision)
                     json_sample_results = addResultsToDictionary(json_sample_results, "Orig_High", float(original_high))
                 thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh)
 
@@ -109,8 +114,16 @@ def testing():
     '''f = open(output_path + "ResultsOfThresholding.txt", "w")
     f.write(results_record)
     f.close()'''
-    with open(output_path + 'results1.json', 'w') as j:
+    with open(output_path + 'results2.json', 'w') as j:
         json.dump(complete_json_results, j)
+
+def change_between_intensities(intensities):
+    list_of_intensities = list(intensities)
+    results = []
+    for k in range(1, len(list_of_intensities), 1):
+        perc = float((list_of_intensities[k]/list_of_intensities[k-1]) - 1)
+        results.append(perc)
+    return results
 
 def save_hist(img, low, population, save_path):
     counts, centers = histogram(img)
@@ -133,6 +146,7 @@ def save_hist(img, low, population, save_path):
 def show_hist(img, low=None, population=None):
     counts, centers = histogram(img)
     plt.plot(centers, counts, color='black')
+    print("Voxels:", counts.sum())
     if low != None:
         low_index = np.where(centers == low)[0][0]
         print("Low values", low, low_index, centers[low_index])
@@ -141,6 +155,7 @@ def show_hist(img, low=None, population=None):
         plt.axvline(low, 0, 1, label='Low', color="red")
 
     total_population = counts.sum()
+    print("Current Voxels:", total_population)
     if population != None:
         initial_density = int(total_population*population)
         starting_intensity = 0
@@ -148,6 +163,10 @@ def show_hist(img, low=None, population=None):
             if np.sum(counts[intensity:]) >= initial_density:
                 starting_intensity = centers[intensity]
                 break
+        print("Starting Intensity:", starting_intensity)
+        starting_index = np.where(starting_intensity == centers)[0][0]
+        print(starting_index)
+        print("Starting_voxels", counts[starting_index:].sum())
         plt.axvline(starting_intensity, 0, 1, label='High', color="blue")
 
     plt.show()
@@ -160,6 +179,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     voxels_by_intensity = voxels_by_intensity[low_index:]
     intensities = intensities[low_index:]
     img = np.pad(img, 1)
+    voxels_per_intensity = {}
     #Now the majority of low intensity and noise voxels are discarded
     template_compare_array = np.zeros_like(img) + 1  # Array of 1's which can be multiplied by each threshold
     total_population = voxels_by_intensity.sum()
@@ -193,6 +213,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     adjacency_array = np.zeros_like(array_of_structures) #array of zeros. Will be filled with 1's for joins
     adjacency_array[np.where(array_of_structures == starting_position)] = 1 #Initial highest structures for join array
     old_voxels = np.sum(adjacency_array)
+    voxels_per_intensity[range_of_intensities[0]] = float(old_voxels/total_population)
     initial_voxels = old_voxels
     change_by_intensity = []
     progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
@@ -203,8 +224,8 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
         for rv in np.flip(viable_values, axis=0):
             if array_of_structures[rv[0], rv[1], rv[2]] == r and np.any(adjacency_array[rv[0]-1:rv[0]+2, rv[1]-1:rv[1]+2, rv[2]-1:rv[2]+2]):
                 adjacency_array[rv[0], rv[1], rv[2]] = 1
-
         new_voxels = np.sum(adjacency_array)
+        voxels_per_intensity[range_of_intensities[r]] = float((new_voxels - old_voxels)/total_population)
         change = (new_voxels/old_voxels) - 1
         progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(
             change) + " and the total change is " + str((new_voxels - initial_voxels) / initial_voxels) + "\n"
@@ -219,7 +240,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
             answer = range_of_intensities[cbi+1]
             break
     #print(progress)
-    return answer
+    return answer, voxels_per_intensity
 
 def calculate_high_threshold(img, low, start_density, decay_rate=0.1, faster=True):
     '''
@@ -481,5 +502,38 @@ def other_threshold_results(img):
         print(e)
     return result
 
+def preview_hysteresis_high(file_name):
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
+    img = io.imread(input_path + file_name)
+    low, __, ___ = testing_knee(img, log_hist=True)
+    #show_hist(img, low, 0.25)
+    total_array = np.zeros_like(img)
+    print("Building Preview")
+    voxels_by_intensity, intensities = histogram(img)
+    low_index = np.where(intensities == low)[0][0]
+    voxels_by_intensity = voxels_by_intensity[low_index:]
+    starting_intensity = intensities[-1]
+    template_compare_array = np.zeros_like(img) + 1  # Array of 1's which can be multiplied by each threshold
+    total_population = voxels_by_intensity.sum()
+    initial_density = int(total_population * 0.25)
+    for intensity in range(len(voxels_by_intensity), 0, -1):
+        if np.sum(voxels_by_intensity[intensity:]) >= initial_density:
+            starting_intensity = intensities[intensity]
+            print("Starting intensity found", starting_intensity)
+            break
+    range_of_intensities = recursive_intensity_steps(low, starting_intensity, 0.1) #This will provide a list of intensities with which to check for neighbours
+    range_of_intensities.insert(0, starting_intensity)
+    array_of_structures = np.zeros_like(img)
+    print("Range of intensities:", range_of_intensities)
+    for i in range_of_intensities:
+        compare_array = template_compare_array * i
+        results = np.greater_equal(img, compare_array).astype(int)
+        array_of_structures = array_of_structures + results
+    slice = int(array_of_structures.shape[0]/2)
+    io.imshow(array_of_structures[slice])
+    plt.show()
+    return total_array
+
 if __name__ == "__main__":
     testing()
+    #preview_hysteresis_high('CCCP_1C=0Noise000.tif')
