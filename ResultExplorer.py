@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import pandas as pd
-
+import copy
 
 
 class dataExplorer:
@@ -37,6 +37,18 @@ class dataExplorer:
                     sample_dict[separator] = self.add_to_dict(sample_dict, separator, float(d.split(separator)[1].split('.')[0]))
             seperated_data[samples] = sample_dict
         return seperated_data
+
+    def __copy_array(self, array_dict):
+        copied_arrays = {}
+        for k, v in array_dict.items():
+            if type(v) is dict:
+                temp = {}
+                for subk, subv in v.items():
+                    temp[subk] = copy.deepcopy(subv)
+                copied_arrays[k] = temp
+            else:
+                copied_arrays[k] = copy.deepcopy(v)
+        return copied_arrays
 
     def add_to_dict(self, output_dict, key, value):
         result = None
@@ -170,17 +182,26 @@ class dataExplorer:
         return array_list, dict_params
         #copy dictionary approach and validation in the version without a separator
 
-    def __mean_of_data(self, data, params):
+    def __mean_of_data(self, data, params, ax=0):
         for p in list(data):
             values = data[p]
             if p in params:
                 if type(values) is dict:
                     sub_dict = {}
                     for k, v in values.items():
-                        sub_dict[k] = v.mean(axis=0)
+                        if ax != -1:
+                            sub_dict[k] = v.mean(axis=ax)
+                        else:
+                            sub_dict[k] = v
                     data[p] = sub_dict
                 else:
-                    data[p] = data[p].mean(axis=0)
+                    #print("Before Mean:", ax, p, data[p].shape)
+                    if ax == -1:
+                        if len(data[p].shape) > 1:
+                            data[p] = data[p].mean(axis=ax)
+                    else:
+                        data[p] = data[p].mean(axis=ax)
+                    #print("After Mean:", ax, p, data[p].shape)
             else:
                 if type(values) is dict:
                     sub_dict = {}
@@ -189,6 +210,7 @@ class dataExplorer:
                     data[p] = sub_dict
                 else:
                     data[p] = data[p].T
+
         return data
 
     def __array_to_list(self, data):
@@ -203,22 +225,104 @@ class dataExplorer:
                 result[k] = data[k].round(10).tolist()
         return result
 
-    def generate_plots(self, params, pivot=True, seper=True):
+    def generate_plots(self, params, graphs, pivot=True, seper=True):
+        '''graphs is going to be a dictionary. The keys in the dictionary will dictate the graph requested. The value will contain a list.
+        The list will have three elements. The first element will be the x-axis and be 1 param. The second element will be the y-axis and can be multiple
+        parameters which will be individual graphs. The third element will be optional and will denote a grouping parameter for the y-axis such as
+        precision or noise'''
         '''currently the generate_mean_data returns a dictionary of mean arrays
         A second function could be made to iterate through the dictionary of arrays and get either the mean, max or min depending on the
         request. These should be separate functions in case different operations are to be applied to different data points. Some trends
         could be better without the mean applied such as the counts of samples with certain thresholds'''
-        summarised_data, dict_params = self.__generate_summarised_data(params)
-        current_params = list(summarised_data)
-        summarised_data = self.__mean_of_data(summarised_data, current_params)
+        all_summarised_data, dict_params = self.__generate_summarised_data(params)
+        current_params = list(all_summarised_data)
+        for graphs, configs in graphs.items():
+            for c in configs:
+                x_axis = c[0]
+                y_axis = c[1]
+                adjustments = c[2]
+                summarised_data = self.__copy_array(all_summarised_data)
+                print(self.pivot_value_count)
+                print("---------------------- before any summ ------------------------")
+                for col in list(summarised_data):
+                    if type(summarised_data[col]) is not dict:
+                        print(col, summarised_data[col].shape)
+                if self.separator is not None:
+                    if self.separator not in adjustments and self.separator not in x_axis:
+                        summarised_data = self.__mean_of_data(summarised_data, current_params, 1)
+                    print("---------------------- after sep summ ------------------------")
+                    for col in list(summarised_data):
+                        if type(summarised_data[col]) is not dict:
+                            print(col, summarised_data[col].shape)
+                if 'samples' not in adjustments:
+                    summarised_data = self.__mean_of_data(summarised_data, current_params)
+                    print("---------------------- After sample summ ------------------------")
+                    for col in list(summarised_data):
+                        if type(summarised_data[col]) is not dict:
+                            print(col, summarised_data[col].shape)
+                if self.pivot_params is not None:
+                    if self.pivot_params[0] not in adjustments and self.pivot_params[0] not in x_axis:
+                        summarised_data = self.__mean_of_data(summarised_data, current_params, -1)
+                        print("---------------------- After pivot summ ------------------------")
+                        for col in list(summarised_data):
+                            if type(summarised_data[col]) is not dict:
+                                print(col, summarised_data[col].shape)
+                x_axis_check = self.balance_x_axis(x_axis, summarised_data)
+                print("After reorientating for pivot")
+                '''for col in list(summarised_data):
+                    if type(summarised_data[col]) is not dict:
+                        print(col, summarised_data[col].shape)'''
+                summarised_data = self.__array_to_list(summarised_data)  # This will now also separate filters
+                df = pd.DataFrame.from_dict(summarised_data, orient='index')
+                df = df.T
+                df, renamed = self.df_list_separate(df)  # This will separate lists in each row for plotting.renamed is a dict with old name:new name
+                groups = self.extract_constant(df, renamed)
+                if renamed:
+                    replacement_name = {}
+                    for y in y_axis:
+                        print(y, list(renamed))
+                        if y in list(renamed):
+                            replacement_name[y] = []
+                            for r in renamed[y]:
+                                replacement_name[y].append(y + r)
+                    if replacement_name:
+                        for k, v in replacement_name.items():
+                            y_axis.remove(k)
+                            y_axis = y_axis + v
+                self.plot_lines(df, x_axis, y_axis, groups)
         '''data not averaged is currently transposed. This will be good if the Noise is averaged and the samples are to be grouped by it'''
-        summarised_data = self.__array_to_list(summarised_data) #This will now also separate filters
+        #summarised_data = self.__array_to_list(summarised_data) #This will now also separate filters
         #print(summarised_data)
-        df = pd.DataFrame.from_dict(summarised_data, orient='index')
+        #df = pd.DataFrame.from_dict(summarised_data, orient='index')
         #print(df.to_string())
-        df = df.T
-        df, renamed = self.df_list_separate(df)  # This will separate lists in each row for plotting.renamed is a dict with old name:new name
-        print(df.to_string())
+        #df = df.T
+        #df, renamed = self.df_list_separate(df)  # This will separate lists in each row for plotting.renamed is a dict with old name:new name
+        #self.plot_lines(df, 'Noise', ['Otsu', 'Li', 'Yen', 'Triangle', 'Mean'])
+
+    def extract_constant(self, df, names):
+        new_names = {}
+        changed_names = list(names)
+        replacement_names = {}
+        group_found = False
+        if self.pivot_params:
+            if self.pivot_params[0] in changed_names:
+                for varia in names[self.pivot_params[0]]:
+                    new_names[varia] = str(df[self.pivot_params[0] + varia].iloc[0])
+                changed_names.remove(self.pivot_params[0])
+                group_found = True
+        if self.separator is not None:
+            if self.separator in changed_names:
+                for varia in names[self.separator]:
+                    new_names[varia] = str(df[self.separator + varia].iloc[0])
+                changed_names.remove(self.separator)
+                group_found = True
+        if group_found:
+            for c in changed_names:
+                for subnames in names[c]:
+                    replacement_names[c + subnames] = new_names[subnames]
+        return replacement_names
+
+        '''Currently there can only be inner lists due to one pivot param or seperator'''
 
 
     def Type_Extract(self, nested_object, param):
@@ -244,6 +348,7 @@ class dataExplorer:
         not_lists = (df.applymap(type) != list).all()
         list_false = list(not_lists[not_lists].keys())
         combined_dict = df[list_false].to_dict()
+        print("Not Lists", combined_dict)
         column_lists = {}
         list_true = list(list_columns[list_columns].keys())
         if list_true:
@@ -263,11 +368,47 @@ class dataExplorer:
         new_df = pd.DataFrame.from_dict(combined_dict)
         return new_df, column_lists
 
+    def plot_graph_call(self, df, graph_type, x_axis, y_axis, groups):
+        if graph_type == 'line':
+            self.plot_lines(df, x_axis, y_axis, groups)
+
+    def plot_lines(self, df, x_axis, y_axis, groups=False):
+        print("y-axis", y_axis)
+        new_df = df.set_index(x_axis)
+        new_df = new_df[y_axis]
+        if groups:
+            print("Hurray")
+            '''This will be the High_Thresh which will have a value for each precision'''
+            new_df = new_df.rename(index=str, columns=groups)
+        new_df.plot.line()
+        plt.show()
+
+    def balance_x_axis(self, x_axis, data):
+        if x_axis is not self.separator and self.separator is not None:
+            new_shape = data[x_axis].T.shape
+            for k, v in data.items():
+                template = np.zeros(new_shape) + 1
+                if type(v) is not dict:
+                    if len(v.shape) < len(new_shape):
+                        data[k] = np.multiply(template, v) #This should replicate the array
+                    else:
+                        data[k] = data[k].T
+                else:
+                    temp = {}
+                    for sub_k, sub_v in v.items():
+                        if len(sub_v.shape) < len(new_shape):
+                            temp[sub_k] = np.multiply(template, sub_v)
+                        else:
+                            temp[sub_k] = sub_v.T
+                    data[k] = temp
+            if len(data[x_axis].shape) > 1:
+                data[x_axis] = data[x_axis].mean(axis=1)
+        return data
 
 if __name__ == "__main__":
     input_path = "C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\"
     json_file = "results1.json"
     testing = dataExplorer(input_path, json_file, 'Noise', ['Precision'])
-    params = ['All Filter Thresh', 'Low_Thresh']
+    params = ['All Filter Thresh', 'Low_Thresh', 'High_Thresh', 'Precision', 'Noise']
     #testing.print_data()
-    testing.generate_plots(params)
+    testing.generate_plots(params, {"line":[['Noise', ['High_Thresh'], ['Precision']], ['Noise', ['Low_Thresh'], ['Precision']]]})
