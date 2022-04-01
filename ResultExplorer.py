@@ -7,10 +7,12 @@ import copy
 
 
 class dataExplorer:
-    def __init__(self, input_path, json_file, separator=None, pivot_params=None):
+    def __init__(self, input_path, json_file, separator=None, pivot_params=None, sep_values=None, pivot_values=None):
         self.separator = separator
         self.pivot_params = pivot_params
         self.pivot_value_count = None
+        self.sep_values = sep_values
+        self.pivot_values = pivot_values
         if separator is None:
             self.__df = pd.read_json(input_path + json_file)
         else:
@@ -22,6 +24,9 @@ class dataExplorer:
 
     def separate_samples(self, data, separator):
         seperated_data = {}
+        if self.pivot_params is not None:
+            if self.pivot_values is None:
+                self.pivot_values = data[list(data)[0]][self.pivot_params[0]]
         samples_names = [s.split(separator)[0] for s in list(data)]
         samples_names = set(samples_names)
         for samples in samples_names:
@@ -35,6 +40,8 @@ class dataExplorer:
                                 self.pivot_value_count = len(value) if type(value) is list else 0
                         sample_dict[key] = self.add_to_dict(sample_dict, key, value)
                     sample_dict[separator] = self.add_to_dict(sample_dict, separator, float(d.split(separator)[1].split('.')[0]))
+                    if self.sep_values is None:
+                        self.sep_values = sample_dict[separator]
             seperated_data[samples] = sample_dict
         return seperated_data
 
@@ -197,7 +204,7 @@ class dataExplorer:
                 else:
                     #print("Before Mean:", ax, p, data[p].shape)
                     if ax == -1:
-                        if len(data[p].shape) > 1:
+                        if len(data[p].shape) > 1 and data[p].shape[-1] == self.pivot_value_count:
                             data[p] = data[p].mean(axis=ax)
                     else:
                         data[p] = data[p].mean(axis=ax)
@@ -238,11 +245,29 @@ class dataExplorer:
         current_params = list(all_summarised_data)
         for graphs, configs in graphs.items():
             for c in configs:
+                print("Config params", c)
                 x_axis = c[0]
                 y_axis = c[1]
                 adjustments = c[2]
+                capped_values = None
                 summarised_data = self.__copy_array(all_summarised_data)
-                print(self.pivot_value_count)
+                if len(c) == 4:
+                    capped_values = c[3]
+                    for option, changes in capped_values.items():
+                        range_of_elements = changes.split(':')
+                        indexes = [None, None]
+                        if len(range_of_elements) == 1:
+                            indexes = int(range_of_elements[0])
+                        else:
+                            if range_of_elements[0]:
+                                indexes[0] = int(range_of_elements[0])
+                            if range_of_elements[1]:
+                                indexes[1] = int(range_of_elements[1])
+                        if option == 'samples':
+                            print(list(summarised_data))
+                            test = self.data_range_selection(indexes, summarised_data, 0)
+
+                #print(self.pivot_value_count)
                 print("---------------------- before any summ ------------------------")
                 for col in list(summarised_data):
                     if type(summarised_data[col]) is not dict:
@@ -250,54 +275,60 @@ class dataExplorer:
                 if self.separator is not None:
                     if self.separator not in adjustments and self.separator not in x_axis:
                         summarised_data = self.__mean_of_data(summarised_data, current_params, 1)
-                    print("---------------------- after sep summ ------------------------")
+                    '''print("---------------------- after sep summ ------------------------")
                     for col in list(summarised_data):
                         if type(summarised_data[col]) is not dict:
-                            print(col, summarised_data[col].shape)
-                if 'samples' not in adjustments:
+                            print(col, summarised_data[col].shape)'''
+                if 'samples' not in adjustments and graphs != 'scatter':
                     summarised_data = self.__mean_of_data(summarised_data, current_params)
-                    print("---------------------- After sample summ ------------------------")
+                    '''print("---------------------- After sample summ ------------------------")
                     for col in list(summarised_data):
                         if type(summarised_data[col]) is not dict:
-                            print(col, summarised_data[col].shape)
+                            print(col, summarised_data[col].shape)'''
                 if self.pivot_params is not None:
                     if self.pivot_params[0] not in adjustments and self.pivot_params[0] not in x_axis:
                         summarised_data = self.__mean_of_data(summarised_data, current_params, -1)
-                        print("---------------------- After pivot summ ------------------------")
+                        '''print("---------------------- After pivot summ ------------------------")
                         for col in list(summarised_data):
                             if type(summarised_data[col]) is not dict:
-                                print(col, summarised_data[col].shape)
-                x_axis_check = self.balance_x_axis(x_axis, summarised_data)
+                                print(col, summarised_data[col].shape)'''
                 print("After reorientating for pivot")
-                '''for col in list(summarised_data):
-                    if type(summarised_data[col]) is not dict:
-                        print(col, summarised_data[col].shape)'''
+                if graphs != 'scatter':
+                    x_axis_check = self.balance_x_axis(x_axis, summarised_data)
+                    '''for col in list(summarised_data):
+                        if type(summarised_data[col]) is not dict:
+                            print(col, summarised_data[col].shape)'''
                 summarised_data = self.__array_to_list(summarised_data)  # This will now also separate filters
                 df = pd.DataFrame.from_dict(summarised_data, orient='index')
                 df = df.T
                 df, renamed = self.df_list_separate(df)  # This will separate lists in each row for plotting.renamed is a dict with old name:new name
                 groups = self.extract_constant(df, renamed)
-                if renamed:
-                    replacement_name = {}
-                    for y in y_axis:
-                        print(y, list(renamed))
+                x_index = x_axis
+                relevant_renames = {}
+                if x_axis in list(renamed):
+                    replacement_name = []
+                    for r in renamed[x_axis]:
+                        replacement_name.append(x_axis + r)
+                    x_index = replacement_name
+                    relevant_renames[x_axis] = replacement_name
+                for y in y_axis:
+                    y_labels = y
+                    y_columns = [y]
+                    if renamed:
+                        replacement_name = {}
                         if y in list(renamed):
                             replacement_name[y] = []
                             for r in renamed[y]:
                                 replacement_name[y].append(y + r)
-                    if replacement_name:
-                        for k, v in replacement_name.items():
-                            y_axis.remove(k)
-                            y_axis = y_axis + v
-                self.plot_lines(df, x_axis, y_axis, groups)
-        '''data not averaged is currently transposed. This will be good if the Noise is averaged and the samples are to be grouped by it'''
-        #summarised_data = self.__array_to_list(summarised_data) #This will now also separate filters
-        #print(summarised_data)
-        #df = pd.DataFrame.from_dict(summarised_data, orient='index')
-        #print(df.to_string())
-        #df = df.T
-        #df, renamed = self.df_list_separate(df)  # This will separate lists in each row for plotting.renamed is a dict with old name:new name
-        #self.plot_lines(df, 'Noise', ['Otsu', 'Li', 'Yen', 'Triangle', 'Mean'])
+                            relevant_renames[y] = replacement_name[y]
+                        if replacement_name:
+                            for k, v in replacement_name.items():
+                                y_columns.remove(k)
+                                y_columns = y_columns + v
+                    #print(y_columns, "\nSub Names:", renamed, "\nGroup labels", groups)
+                    self.plot_graph_call(df=df, graph_type=graphs, x_axis=x_index, y_axis=y_columns, renamed=relevant_renames, y_labels=y_labels,
+                                         x_labels=x_axis, groups=groups)
+
 
     def extract_constant(self, df, names):
         new_names = {}
@@ -322,9 +353,6 @@ class dataExplorer:
                     replacement_names[c + subnames] = new_names[subnames]
         return replacement_names
 
-        '''Currently there can only be inner lists due to one pivot param or seperator'''
-
-
     def Type_Extract(self, nested_object, param):
         if type(nested_object) is dict:
             unnested = list(nested_object.values())[0]
@@ -348,7 +376,7 @@ class dataExplorer:
         not_lists = (df.applymap(type) != list).all()
         list_false = list(not_lists[not_lists].keys())
         combined_dict = df[list_false].to_dict()
-        print("Not Lists", combined_dict)
+        #print("Not Lists", combined_dict)
         column_lists = {}
         list_true = list(list_columns[list_columns].keys())
         if list_true:
@@ -356,6 +384,7 @@ class dataExplorer:
             list_sizes = applicable_columns.applymap(len).max()
             dict_of_columns = list_sizes.to_dict()
             result_dict = {}
+            #Need to type check here if there are twice nested lists in the case that noise and precision is kept. the label should be name + str(n) + str(n2)
             for k, v in dict_of_columns.items():
                 column_lists[k] = []
                 for n in range(v):
@@ -368,11 +397,13 @@ class dataExplorer:
         new_df = pd.DataFrame.from_dict(combined_dict)
         return new_df, column_lists
 
-    def plot_graph_call(self, df, graph_type, x_axis, y_axis, groups):
+    def plot_graph_call(self, df, graph_type, x_axis, y_axis, renamed, y_labels=None, x_labels=None, groups=False):
         if graph_type == 'line':
-            self.plot_lines(df, x_axis, y_axis, groups)
+            self.plot_lines(df, x_axis, y_axis, y_labels, groups)
+        if graph_type == 'scatter':
+            self.plot_scatter(df, x_axis, y_axis, y_labels, x_labels, renamed)
 
-    def plot_lines(self, df, x_axis, y_axis, groups=False):
+    def plot_lines(self, df, x_axis, y_axis, y_labels=None, groups=False):
         print("y-axis", y_axis)
         new_df = df.set_index(x_axis)
         new_df = new_df[y_axis]
@@ -380,8 +411,146 @@ class dataExplorer:
             print("Hurray")
             '''This will be the High_Thresh which will have a value for each precision'''
             new_df = new_df.rename(index=str, columns=groups)
-        new_df.plot.line()
+        ax = new_df.plot.line()
+        ax.set_ylabel(y_labels)
         plt.show()
+
+    def plot_scatter(self, df, x_axis, y_axis, y_labels=None, x_labels=None, grouped_names=False):
+        '''Scatter can act oddly with Pandas if multiple classes are involved. After data selection subsets can be extracted and normal matplotlib
+        can be used. In this case the samples would ideally be reatained as averaging will leave a scatter with only 5 or 3 points. The issue comes from having
+        both pivot and sep as groups. The two options are to prioritise sep so that there are #samples*#sep for each scatter and then if pivot is not summarised
+        then there can be p plots for each pivot. These could be individual plots or displayed as subplots.'''
+        #print("Groups", grouped_names)
+        #print('columns', df.columns)
+        #print("Provided labels", y_labels, x_labels)
+        #print("Axis Names", x_axis, y_axis)
+        sample_count = len(df.index)
+        number_in_group = []
+        group_names = list(grouped_names)
+
+        x_group_size = 0
+        y_group_size = 0
+        if x_labels in group_names and x_labels is not None:
+            x_group_size = len(grouped_names[x_labels])
+        if y_labels in group_names and y_labels is not None:
+            y_group_size = len(grouped_names[y_labels])
+        coords = []
+        for s in range(sample_count):
+            coords.append(self.organise_scatter_coords(s, df, x_group_size, y_group_size, x_labels, y_labels))
+        coord_array = np.array(coords)
+        fig, ax = plt.subplots()
+        noise_set = self.sep_values
+        for m in range(coord_array.shape[1]):
+            ax.plot(coord_array[:, m, 0], coord_array[:, m, 1], marker='.', linestyle='', ms=12, label=noise_set[m])
+        ax.set_ylabel(y_labels)
+        ax.set_xlabel(x_labels)
+        ax.legend()
+        plt.show()
+
+    def organise_scatter_coords(self, sample, df, x_size, y_size, x_name, y_name):
+        '''Below are two cases where both sep and/or pivot have been averaged out thus no groups'''
+        x_value = None
+        y_value = None
+        if x_size == 0:
+            x_value = df[x_name].iloc[sample]
+        if y_size == 0:
+            y_value = df[y_name].iloc[sample]
+        if x_value is not None and y_value is not None:
+            #Both axis are not grouped
+            return [[x_value, y_value]]
+        if x_size == y_size:
+            result = []
+            for n in range(x_size):
+                x_value = df[x_name + str(n)].iloc[sample]
+                y_value = df[y_name + str(n)].iloc[sample]
+                result.append([x_value, y_value])
+            return result
+        else:
+            result = []
+            if x_size > y_size:
+                y_value = df[y_name].iloc[sample]
+                for n in range(x_size):
+                    x_value = df[x_name + str(n)].iloc[sample]
+                    result.append([x_value, y_value])
+                return result
+            else:
+                x_value = df[x_name].iloc[sample]
+                for n in range(y_size):
+                    y_value = df[y_name + str(n)].iloc[sample]
+                    result.append([x_value, y_value])
+                return result
+
+
+    def data_range_selection(self, indexes, dict_of_arrays, dim):
+        '''will be supplied with an array and an index range to index it.'''
+        print(list(dict_of_arrays))
+        for k, v in dict_of_arrays.items():
+            print("check", k, type(v))
+            if type(v) is dict:
+                for sub_k, sub_v in v.items():
+                    if len(sub_v.shape) >= (dim + 1):
+                        if type(indexes) is list:
+                            if indexes[0] is None:
+                                if dim == 0:
+                                    dict_of_arrays[k][sub_k] = sub_v[:indexes[1]]
+                                if dim == 1:
+                                    dict_of_arrays[k][sub_k] = sub_v[:indexes[1]]
+                                if dim == 2:
+                                    dict_of_arrays[k][sub_k] = sub_v[:indexes[1]]
+                            elif indexes[1] is None:
+                                if dim == 0:
+                                    dict_of_arrays[k][sub_k] = sub_v[:, indexes[0]:]
+                                if dim == 1:
+                                    dict_of_arrays[k][sub_k] = sub_v[:, indexes[1]]
+                                if dim == 2:
+                                    dict_of_arrays[k][sub_k] = sub_v[:, indexes[1]]
+                            else:
+                                if dim == 0:
+                                    dict_of_arrays[k][sub_k] = sub_v[:, indexes[0]:indexes[1]]
+                                if dim == 1:
+                                    dict_of_arrays[k][sub_k] = sub_v[:, indexes[1]]
+                                if dim == 2:
+                                    dict_of_arrays[k][sub_k] = sub_v[:, indexes[1]]
+                        else:
+                            if dim == 0:
+                                dict_of_arrays[k][sub_k] = sub_v[indexes]
+                            if dim == 1:
+                                dict_of_arrays[k][sub_k] = sub_v[:, indexes]
+                            if dim == 2:
+                                dict_of_arrays[k][sub_k] = sub_v[:, :, indexes]
+            else:
+                if len(v.shape) >= (dim + 1):
+                    if type(indexes) is list:
+                        if indexes[0] is None:
+                            if dim == 0:
+                                dict_of_arrays[k] = v[:indexes[1]]
+                            if dim == 1:
+                                dict_of_arrays[k] = v[:indexes[1]]
+                            if dim == 2:
+                                dict_of_arrays[k] = v[:indexes[1]]
+                        elif indexes[1] is None:
+                            if dim == 0:
+                                dict_of_arrays[k] = v[:, indexes[0]:]
+                            if dim == 1:
+                                dict_of_arrays[k] = v[:, indexes[1]]
+                            if dim == 2:
+                                dict_of_arrays[k] = v[:, indexes[1]]
+                        else:
+                            if dim == 0:
+                                dict_of_arrays[k] = v[:, indexes[0]:indexes[1]]
+                            if dim == 1:
+                                dict_of_arrays[k] = v[:, indexes[1]]
+                            if dim == 2:
+                                dict_of_arrays[k] = v[:, indexes[1]]
+                    else:
+                        if dim == 0:
+                            dict_of_arrays[k] = v[indexes]
+                        if dim == 1:
+                            dict_of_arrays[k] = v[:, indexes]
+                        if dim == 2:
+                            dict_of_arrays[k] = v[:, :, indexes]
+        return dict_of_arrays
+
 
     def balance_x_axis(self, x_axis, data):
         if x_axis is not self.separator and self.separator is not None:
@@ -410,5 +579,7 @@ if __name__ == "__main__":
     json_file = "results1.json"
     testing = dataExplorer(input_path, json_file, 'Noise', ['Precision'])
     params = ['All Filter Thresh', 'Low_Thresh', 'High_Thresh', 'Precision', 'Noise']
+    graphs_wanted = {"line":[['Noise', ['High_Thresh', 'Low_Thresh'], ['Precision']], ['Precision', ['High_Thresh'], ['Noise']]]}
     #testing.print_data()
-    testing.generate_plots(params, {"line":[['Noise', ['High_Thresh'], ['Precision']], ['Noise', ['Low_Thresh'], ['Precision']]]})
+    #sampling prior to averaging somewhat works but needs to be aligned with averaging functionality: e.g. {'samples':'0'}
+    testing.generate_plots(params, {"scatter":[['Low_Thresh', ['High_Thresh'], ['Noise']]]})
