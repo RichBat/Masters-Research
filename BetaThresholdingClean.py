@@ -1,3 +1,4 @@
+import os.path
 from os import listdir
 from os.path import isfile, join, exists
 
@@ -19,31 +20,26 @@ import json
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif": [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif": [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif": [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif": [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif": [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif": [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif": [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif": [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif": [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif": [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1.tif": [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif": [[0.034, 0.097], [0.024, 0.1]]}
 
 def testing():
-    input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
-    output_path = "C:\\RESEARCH\\Mitophagy_data\\4.Thresholded\\"
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"
+    output_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"
     images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
     results_record = ""
     extra_noise = False
     complete_json_results = {}
-    calculate_original = True
+    calculate_original = False
+    number_of_samples = len(images)
+    sample_progress = 0
+    actual_beginning_time = time.process_time()
     for filename in images:
+        sample_progress += 1
         json_sample_results = {
-            "Precision": None,
-            "Low_Thresh": None,
-            "High_Thresh": None,
-            "Orig_Low": None,
-            "Orig_High": None,
-            "Filter_Thresh": None,
+            "Total Voxels": None,
             "Filter_Cutoff": None,
-            "Hyst_Voxels": None,
-            "Filter_Voxels": None,
-            "Sufficient": None,
             "All Filter Thresh": None,
-            "Voxels per intensity": None,
-            "Voxels changes": None
+            "Sample Variants": []
         }
         img = io.imread(input_path + filename)
-        print("Hist of original image:", filename)
+        #print("Hist of original image:", filename)
         #show_hist(img)
         noise_adjustment = sample_checker.ThresholdOutlierDetector(input_path, filename)
         noise_adjustment_p = sample_checker.ThresholdOutlierDetector(input_path, filename, 'poisson')
@@ -74,56 +70,110 @@ def testing():
                     threshold_voxels) + " Number of Otsu Voxels*" + str(otsu_cutoff) + ": " + str(
                     otsu_voxels) + " Were there sufficient voxels? " + str(sufficient) + "\n"
         else:
-            print("Calculating Thresholds")
-            json_sample_results["All Filter Thresh"] = other_threshold_results(img)
-            print("Other threshold values added", json_sample_results)
-            low_thresh, original_low, otsu_thresh = testing_knee(img, cutoff=1, log_hist=True)
-            json_sample_results = addResultsToDictionary(json_sample_results, "Filter_Thresh", float(otsu_thresh))
-            json_sample_results = addResultsToDictionary(json_sample_results, "Low_Thresh", float(low_thresh))
-            if calculate_original:
-                json_sample_results = addResultsToDictionary(json_sample_results, "Orig_Low", float(original_low))
+            #print("Calculating Thresholds")
+            filter_results = other_threshold_results(img)
+            json_sample_results["All Filter Thresh"] = filter_results
+            #print("Other threshold values added", json_sample_results)
             otsu_cutoff = 0.0008
             json_sample_results = addResultsToDictionary(json_sample_results, "Filter_Cutoff", float(otsu_cutoff))
-            for prec in range(5, 16, 5):
-                precision = prec/100
-                json_sample_results = addResultsToDictionary(json_sample_results, "Precision", precision)
-                high_thresh, voxels_per_intensity = high_threshold_nested(img, low_thresh, 0.25, precision)
-                voxel_changes = change_between_intensities(voxels_per_intensity)
-                json_sample_results = addResultsToDictionary(json_sample_results, "High_Thresh", float(high_thresh))
-                json_sample_results = addResultsToDictionary(json_sample_results, "Voxels per intensity", voxels_per_intensity)
-                json_sample_results = addResultsToDictionary(json_sample_results, "Voxels changes", voxel_changes)
-                if calculate_original:
-                    original_high, voxels_per_intensity = high_threshold_nested(img, original_low, 0.25, precision)
-                    json_sample_results = addResultsToDictionary(json_sample_results, "Orig_High", float(original_high))
-                thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh)
-
-                sufficient, threshold_voxels, otsu_voxels = noise_adjustment.outlierDetection(thresholded_image, otsu_cutoff, True)
-                json_sample_results = addResultsToDictionary(json_sample_results, "Hyst_Voxels", threshold_voxels)
-                json_sample_results = addResultsToDictionary(json_sample_results, "Filter_Voxels", otsu_voxels)
-                json_sample_results = addResultsToDictionary(json_sample_results, "Sufficient", int(sufficient))
-                results_record = results_record + "Precision: " + str(precision) + "\t A low threshold of " + str(
-                    low_thresh) + " and a high threshold of " + str(
-                    high_thresh) + " are determined. Number of Hysteresis voxels = " + str(
-                    threshold_voxels) + " Number of Otsu Voxels*" + str(otsu_cutoff*100) + ": " + str(
-                    otsu_voxels) + " Were there sufficient voxels? " + str(
-                    sufficient) + "\n"
-                #json_results[filename] = addResultsToDictionary()
-                #io.imsave(output_path + "Precision" + str(precision) + "\\" + filename, thresholded_image)
+            total_voxels = 0
+            filename = filename.split('Noise')[0] + '.tif'
+            manual_parameters = manual_Hysteresis[filename]
+            progress_count = 0
+            density_config = [1, 22, 5]
+            prec_config = [2, 15, 2]
+            filter_variant_count = len(list(filter_results))
+            total_steps = int(((density_config[1]-density_config[0])/density_config[2]) + 1)*int(((prec_config[1]-prec_config[0])/prec_config[2]) + 1)*filter_variant_count
+            print("Total steps", total_steps)
+            for filt, low_filt in filter_results.items():
+                for starting_density in range(density_config[0], density_config[1], density_config[2]):
+                    for prec in range(prec_config[0], prec_config[1], prec_config[2]):
+                        variant_time_start = time.process_time()
+                        progress_count += 1
+                        sample_variation_results = {
+                            "Precision": None,
+                            "Starting Density": None,
+                            "Filter Type": None,
+                            "Filter_Thresh": None,
+                            "Low_Thresh": None,
+                            "Orig_Low": None,
+                            "High_Thresh": None,
+                            "Orig_High": None,
+                            "Hyst_Voxels": None,
+                            "Filter_Voxels": None,
+                            "Sufficient": None,
+                            "Intensity Range": None,
+                            "Voxels per intensity": None,
+                            "Voxels changes": [],
+                            "Richard Error": None,
+                            "Rensu Error": None
+                        }
+                        low_thresh, original_low, otsu_thresh = testing_knee(img, cutoff=1, filter_value=low_filt, log_hist=True)
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Filter_Thresh", float(otsu_thresh))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Low_Thresh", float(low_thresh))
+                        if calculate_original:
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Orig_Low", float(original_low))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Starting Density", starting_density)
+                        precision = prec/100
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Precision", precision)
+                        high_thresh, voxels_per_intensity, intensities, total_voxels = high_threshold_nested(img, low_thresh, starting_density/100, precision)
+                        #voxel_changes = change_between_intensities(voxels_per_intensity)
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "High_Thresh", float(high_thresh))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels per intensity", voxels_per_intensity)
+                        #sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels changes", voxel_changes)
+                        #sample_variation_results = addResultsToDictionary(sample_variation_results, "Intensity Range", intensities)
+                        if calculate_original:
+                            original_high, voxels_per_intensity, intensities, total_voxels = high_threshold_nested(img, original_low, starting_density/100, precision)
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Orig_High", float(original_high))
+                            orig_thresholded_image = apply_hysteresis_threshold(img, original_low, original_high)
+                            orig_rich, orig_rensu = image_MAE(img, manual_parameters, orig_thresholded_image)
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Richard Error", float(orig_rich))
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Rensu Error", float(orig_rensu))
+                        thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh)
+                        rich_error, rensu_error = image_MAE(img, manual_parameters, thresholded_image)
+                        sufficient, threshold_voxels, otsu_voxels = noise_adjustment.outlierDetection(thresholded_image, otsu_cutoff, True)
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Richard Error", float(rich_error))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Rensu Error", float(rensu_error))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Hyst_Voxels", float(threshold_voxels))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Filter_Voxels", float(otsu_voxels))
+                        sample_variation_results = addResultsToDictionary(sample_variation_results, "Sufficient", int(sufficient))
+                        results_record = results_record + "Precision: " + str(precision) + "\t A low threshold of " + str(
+                            low_thresh) + " and a high threshold of " + str(
+                            high_thresh) + " are determined. Number of Hysteresis voxels = " + str(
+                            threshold_voxels) + " Number of Otsu Voxels*" + str(otsu_cutoff*100) + ": " + str(
+                            otsu_voxels) + " Were there sufficient voxels? " + str(
+                            sufficient) + "\n"
+                        #json_results[filename] = addResultsToDictionary()
+                        if starting_density % 11 == 0 and prec % 4 == 0:
+                            if not os.path.exists(output_path + filt + "\\"):
+                                os.makedirs(output_path + filt + "\\")
+                            io.imsave(output_path + filt + "\\" + "Density" + str(starting_density) + "Precision" + str(precision) + filename, thresholded_image)
+                        json_sample_results["Sample Variants"].append(sample_variation_results)
+                        print("Progress: " + filename + " is " + str(int((progress_count/total_steps)*100)) + "%")
+                        print("Time taken for this variant: " + str(time.process_time()-variant_time_start))
+                        print("Total time thus far: " + str(time.process_time() - actual_beginning_time))
+                        print("Sample number " + str(sample_progress) + " of " + str(number_of_samples))
+            json_sample_results = addResultsToDictionary(json_sample_results, "Total Voxels", int(total_voxels))
+            with open(output_path + filename + 'Results.json', 'w') as j:
+                json.dump(json_sample_results, j)
             complete_json_results[filename] = json_sample_results
     #print(results_record)
     '''f = open(output_path + "ResultsOfThresholding.txt", "w")
     f.write(results_record)
     f.close()'''
-    with open(output_path + 'results2.json', 'w') as j:
+    print(complete_json_results)
+    with open(output_path + 'CompleteResults.json', 'w') as j:
         json.dump(complete_json_results, j)
+
 
 def change_between_intensities(intensities):
     list_of_intensities = list(intensities)
     results = []
     for k in range(1, len(list_of_intensities), 1):
-        perc = float((list_of_intensities[k]/list_of_intensities[k-1]) - 1)
+        perc = float((intensities[list_of_intensities[k]]/intensities[list_of_intensities[k-1]]) - 1)
         results.append(perc)
     return results
+
 
 def save_hist(img, low, population, save_path):
     counts, centers = histogram(img)
@@ -142,6 +192,7 @@ def save_hist(img, low, population, save_path):
     plt.axvline(starting_intensity, 0, 1, label='High', color="blue")
     plt.savefig(save_path)
     plt.clf()
+
 
 def show_hist(img, low=None, population=None):
     counts, centers = histogram(img)
@@ -172,6 +223,7 @@ def show_hist(img, low=None, population=None):
     plt.show()
     plt.clf()
 
+
 def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     voxels_by_intensity, intensities = histogram(img, nbins=256) #This acquires the voxels at each intensity and the intensity at each element
     #print("Intensities:", intensities, " Low: ", low)
@@ -179,7 +231,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     voxels_by_intensity = voxels_by_intensity[low_index:]
     intensities = intensities[low_index:]
     img = np.pad(img, 1)
-    voxels_per_intensity = {}
+    voxels_per_intensity = []
     #Now the majority of low intensity and noise voxels are discarded
     template_compare_array = np.zeros_like(img) + 1  # Array of 1's which can be multiplied by each threshold
     total_population = voxels_by_intensity.sum()
@@ -188,24 +240,24 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     for intensity in range(len(voxels_by_intensity), 0, -1):
         if np.sum(voxels_by_intensity[intensity:]) >= initial_density:
             starting_intensity = intensities[intensity]
-            print("Starting intensity found", starting_intensity)
+            #print("Starting intensity found", starting_intensity)
             break
 
     #Now the starting high threshold has been acquired the rest can begin
     range_of_intensities = recursive_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
-    range_of_intensities.insert(0, starting_intensity)
+    range_of_intensities.insert(0, int(starting_intensity))
     array_of_structures = np.zeros_like(img)
-    print("Range of intensities:", range_of_intensities)
+    #print("Range of intensities:", range_of_intensities)
     range_of_intensities_time_start = time.process_time()
     for i in range_of_intensities:
         compare_array = template_compare_array * i
         results = np.greater_equal(img, compare_array).astype(int)
         array_of_structures = array_of_structures + results
     range_of_intensities_time_end = time.process_time()
-    print("Range of intensities time:", range_of_intensities_time_end-range_of_intensities_time_start)
+    #print("Range of intensities time:", range_of_intensities_time_end-range_of_intensities_time_start)
     viable_values = np.argwhere(array_of_structures > 0)
     number_of_viable_structures = viable_values.shape[0]
-    print("Number of viable voxels:", number_of_viable_structures)
+    #print("Number of viable voxels:", number_of_viable_structures)
     '''if number_of_viable_structures > 1000000:
         print("TOO MANY STRUCTURES")
         return None'''
@@ -213,10 +265,11 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     adjacency_array = np.zeros_like(array_of_structures) #array of zeros. Will be filled with 1's for joins
     adjacency_array[np.where(array_of_structures == starting_position)] = 1 #Initial highest structures for join array
     old_voxels = np.sum(adjacency_array)
-    voxels_per_intensity[range_of_intensities[0]] = float(old_voxels/total_population)
+    voxels_per_intensity.append(int(old_voxels))
     initial_voxels = old_voxels
     change_by_intensity = []
     progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
+    voxel_intensities = range_of_intensities
     for r in range(1, len(range_of_intensities), 1):
         for v in viable_values:
             if array_of_structures[v[0], v[1], v[2]] == r and np.any(adjacency_array[v[0]-1:v[0]+2, v[1]-1:v[1]+2, v[2]-1:v[2]+2]):
@@ -225,7 +278,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
             if array_of_structures[rv[0], rv[1], rv[2]] == r and np.any(adjacency_array[rv[0]-1:rv[0]+2, rv[1]-1:rv[1]+2, rv[2]-1:rv[2]+2]):
                 adjacency_array[rv[0], rv[1], rv[2]] = 1
         new_voxels = np.sum(adjacency_array)
-        voxels_per_intensity[range_of_intensities[r]] = float((new_voxels - old_voxels)/total_population)
+        voxels_per_intensity.append(int(new_voxels))
         change = (new_voxels/old_voxels) - 1
         progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(
             change) + " and the total change is " + str((new_voxels - initial_voxels) / initial_voxels) + "\n"
@@ -236,11 +289,12 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     answer = 0
     for cbi in range(0, len(change_by_intensity), 1):
         if change_by_intensity[cbi] <= average_of_change:
-            print("The best threshold is at", range_of_intensities[cbi+1])
+            #print("The best threshold is at", range_of_intensities[cbi+1])
             answer = range_of_intensities[cbi+1]
             break
     #print(progress)
-    return answer, voxels_per_intensity
+    return answer, voxels_per_intensity, voxel_intensities, total_population
+
 
 def calculate_high_threshold(img, low, start_density, decay_rate=0.1, faster=True):
     '''
@@ -368,22 +422,26 @@ def calculate_high_threshold(img, low, start_density, decay_rate=0.1, faster=Tru
     #print(progress)
     return answer
 
+
 def recursive_intensity_steps(bottom, top, ratio):
-    new_intensity = int(top * (1 - ratio)) #this will reduce top by 10%
+    new_intensity = int(top * (1 - ratio))  # this will reduce top by 10%
+    if new_intensity == top:
+        new_intensity = top - 1  # Will avoid duplicate percentiles if the percentage cause a reduction of less than 1
     steps = [new_intensity]
     if int(new_intensity * (1 - ratio)) > bottom:
         results = recursive_intensity_steps(bottom, new_intensity, ratio)
         for r in results:
-            steps.append(r)
+            steps.append(int(r))
     return steps
 
-def testing_knee(img, cutoff = 1, log_hist=False):
+
+def testing_knee(img, cutoff=1, filter_value=None, log_hist=False):
     #print("Histogram for knee")
     counts, centers = histogram(img, nbins=256)
 
     gaussian_image = gaussian(img)
     rescaled_gaussian_image = (gaussian_image/np.max(gaussian_image))*np.max(img)
-    print("Rescaled Gaussian Otsu", threshold_otsu(rescaled_gaussian_image))
+    #print("Rescaled Gaussian Otsu", threshold_otsu(rescaled_gaussian_image))
     norm_gaussian = (gaussian_image/np.max(gaussian_image))*np.max(img)
     gaussian_counts, gaussian_centers = histogram(norm_gaussian, nbins=256)
     gaussian_counts, gaussian_centers = ((gaussian_counts/np.max(gaussian_counts))*np.max(counts)).astype('int'), ((gaussian_centers / np.max(gaussian_centers)) * np.max(centers)).astype('int')
@@ -409,9 +467,12 @@ def testing_knee(img, cutoff = 1, log_hist=False):
     plt.show()'''
 
     safe_knee = True
-    otsu_thresh = threshold_otsu(img)
-    print("Otsu Thresh:", otsu_thresh)
-    print("Otsu of Guassian", threshold_otsu(norm_gaussian))
+    if filter_value is None:
+        otsu_thresh = threshold_otsu(img)
+    else:
+        otsu_thresh = filter_value
+    #print("Otsu Thresh:", otsu_thresh)
+    #print("Otsu of Guassian", threshold_otsu(norm_gaussian))
     gaussian_otsu = threshold_otsu(norm_gaussian)
     true_knee = 0
     knee_found = True
@@ -425,25 +486,25 @@ def testing_knee(img, cutoff = 1, log_hist=False):
         if knee > otsu_thresh and knee_found:
             true_knee = knee
             knee_found = False
-            print("True Knee", true_knee)
+            #print("True Knee", true_knee)
         if knee <= otsu_thresh or gaussian_knee < gaussian_otsu:
-            print("Determined knee", knee, gaussian_knee)
-            print("Standard Intensity", centers[0])
-            print("Gaussian Intensity", gaussian_centers[0])
-            print("Otsu Thresh", otsu_thresh)
+            #print("Determined knee", knee, gaussian_knee)
+            #print("Standard Intensity", centers[0])
+            #print("Gaussian Intensity", gaussian_centers[0])
+            #print("Otsu Thresh", otsu_thresh)
             centers = centers[1:]
             counts = counts[1:]
             gaussian_centers = gaussian_centers[1:]
             gaussian_counts = gaussian_counts[1:]
         else:
             safe_knee = False
-            print("Final Standard Intensity", centers[0])
-            print("Final Gaussian Intensity", gaussian_centers[0])
-            print("Determined knee", knee, gaussian_knee)
+            #print("Final Standard Intensity", centers[0])
+            #print("Final Gaussian Intensity", gaussian_centers[0])
+            #print("Determined knee", knee, gaussian_knee)
     if not knee_found:
         first_knee = locator.knee
     gaussian_knee = glocator.knee
-    print("knees: ", locator.all_knees, glocator.all_knees)
+    #print("knees: ", locator.all_knees, glocator.all_knees)
 
 
     #locator.plot_knee()
@@ -490,11 +551,11 @@ def other_threshold_results(img):
     except Exception as e:
         print("Triangle Failed")
         print(e)
-    try:
+    '''try:
         result["Min"] = float(threshold_minimum(img))
     except Exception as e:
         print("Min Failed")
-        print(e)
+        print(e)'''
     try:
         result["Mean"] = float(threshold_mean(img))
     except Exception as e:
@@ -533,6 +594,15 @@ def preview_hysteresis_high(file_name):
     io.imshow(array_of_structures[slice])
     plt.show()
     return total_array
+
+def image_MAE(image, manual_parameters, reference_image):
+    first_image = apply_hysteresis_threshold(image, manual_parameters[0][0]*255, manual_parameters[0][1]*255) #Image from my (Richard) parameters
+    second_image = apply_hysteresis_threshold(image, manual_parameters[1][0]*255, manual_parameters[1][1]*255) #Image from Rensu's parameters
+    automatic_threshold = reference_image #This is not a saved image but is rather in an array
+    automatic_threshold = automatic_threshold/np.max(automatic_threshold)
+    first_image_error = np.average(np.abs(first_image - automatic_threshold))
+    second_image_error = np.average(np.abs(second_image - automatic_threshold))
+    return first_image_error, second_image_error
 
 if __name__ == "__main__":
     testing()
