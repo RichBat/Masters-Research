@@ -129,7 +129,7 @@ def save_data(save_path, sample_specific_metrics, sample_variant_metrics):
                                                         "Precision":sam_var["Precision"], "Sample":sam_var["Sample"]})
         by_intensity.append({"High_Thesh":sam_var["High_Thresh"], "Intensity Range":sam_var["Intensity Range"],
                              "Voxels per intensity":sam_var["Voxels per intensity"], "Total Voxels":sample_specific_metrics[sam_var["Sample"]]["Total Voxels"],
-                             "Precision":sam_var["Precision"], "Starting Density":sam_var["Starting Density"], "Filter Type":sam_var["Filter Type"]})
+                             "Precision":sam_var["Precision"], "Starting Density":sam_var["Starting Density"], "Filter Type":sam_var["Filter Type"], "Sample":sam_var["Sample"]})
         by_error.append({"Sample":sam_var["Sample"], "Richard Error":sam_var["Richard Error"], "Rensu Error":sam_var["Rensu Error"],
                          "Filter Type":sam_var["Filter Type"], "Starting Density":sam_var["Starting Density"], "Precision":sam_var["Precision"]})
     final_metrics["All Metrics"] = by_sample
@@ -164,9 +164,15 @@ def filter_reduce(filter_dict):
             current_sample.append(dicts["Sample"])
     return reduced_filter
 
-def filter_graphing(filter_dicts):
-    filter_dfs = {}
-    filter_columns = {}
+def filter_graphing(filter_dicts, error_dict=None):
+    filter_dfs = []
+    error_metrics = {}
+    if error_dict is not None:
+        error_m = {"Otsu":{}, "Yen": {}, "Mean": {}, "Triangle": {}, "Li": {}}
+        for err in error_dict:
+            error_m[err["Filter Type"]][err["Sample"]] = err
+        error_metrics = error_m
+
     for f in list(filter_dicts):
         filter_dict = filter_dicts[f]
         reduced_filter = filter_reduce(filter_dict)
@@ -174,10 +180,56 @@ def filter_graphing(filter_dicts):
         for red in reduced_filter:
             red["Richard"] = manual_Hysteresis[red['Sample']][0][0] * 255
             red["Rensu"] = manual_Hysteresis[red['Sample']][1][0] * 255
+            red["Average"] = (red["Richard"] + red["Rensu"]) / 2
+            red["Diff1"] = abs(red["Richard"] - red["Low_Thresh"]) / red["Richard"]
+            red["Diff2"] = abs(red["Rensu"] - red["Low_Thresh"]) / red["Rensu"]
+            red["DiffAv"] = abs(red["Average"] - red["Low_Thresh"]) / red["Average"]
+            red["Filter Type"] = f
+            if error_metrics:
+                red["Error1"] = error_metrics[red["Filter Type"]][red["Sample"]]["Richard Error"]
+                red["Error2"] = error_metrics[red["Filter Type"]][red["Sample"]]["Rensu Error"]
+                red["ErrorAv"] = (red["Error1"] + red["Error2"])/2
             reduced.append(red)
-        filter_df = pd.DataFrame(reduced)
-        filter_dfs[f] = filter_df
-        filter_columns[f] = filter_df.columns
+            filter_dfs.append(red)
+    filter_df = pd.DataFrame(filter_dfs)
+    new_filter = filter_df.set_index("Filter Type")
+    column_list = ["Diff1", "Diff2", "DiffAv"]
+    if error_metrics:
+        column_list = column_list + ["Error1", "Error2", "ErrorAv"]
+    new_filter = new_filter[column_list]
+    mean_df = new_filter.groupby(level='Filter Type').mean()
+    print(new_filter)
+    print(mean_df)
+    ax1 = mean_df[["Diff1", "Diff2", "DiffAv"]].plot.bar()
+    ax2 = mean_df[["Error1", "Error2", "ErrorAv"]].plot.bar()
+    plt.show()
+
+def intensity_graphs(intensity_dict_list, filter, dens):
+    intensities_by_sample = {}
+    for i in intensity_dict_list:
+        if i["Sample"] not in intensities_by_sample:
+            intensities_by_sample[i["Sample"]] = []
+        if i["Filter Type"] == filter and i["Starting Density"] == dens:
+            intensities_by_sample[i["Sample"]].append({"Precision": i["Precision"], "Total Voxels": i["Total Voxels"],
+                                                       "Voxels per intensity": i["Voxels per intensity"], "Intensity Range": i["Intensity Range"],
+                                                       "High_Thesh": i["High_Thesh"]})
+
+    for k, v in intensities_by_sample.items():
+        plt.clf()
+        print(k)
+        for j in v:
+            intens_range = j["Intensity Range"]
+            voxel_range = j["Voxels per intensity"]
+            intens_range.reverse()
+            voxel_range.reverse()
+            print(intens_range, "\n", j["High_Thesh"])
+            high_thresh_voxels = intens_range.index(j["High_Thesh"])
+            plt.plot(intens_range, voxel_range, '-D', markevery=high_thresh_voxels, label=str(j["Precision"]))
+            print("Precision:", j["Precision"], " High Thresh", j["High_Thesh"])
+        plt.legend()
+        plt.show()
+
+
 
 if __name__ == "__main__":
     input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"
@@ -185,8 +237,13 @@ if __name__ == "__main__":
     #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
     #save_data(correct_path, sample_specific_metrics, sample_variant_metrics)
     loaded_data = load_data(correct_path)
-    filters = loaded_data["Filter"]
-    filter_graphing(filters)
+    intensity_dict = loaded_data["Intensity"]
+    intensity_graphs(intensity_dict, "Mean", 1)
+    #filters = loaded_data["Filter"]
+    #errors = loaded_data["Error"]
+    #filter_graphing(filters, errors)
+    '''Result is that Li, Triangle and Mean are equally low in error. Any can be used for the filter choice atm but this is only for graphing the range of 
+    intensities as noise response is unknown and there is no control'''
     '''df = pd.DataFrame(sample_variant_metrics)
     print(df.columns)
     other_df = df[["Intensity Range", "Sample", "Filter Type", "Precision", "Starting Density"]]
