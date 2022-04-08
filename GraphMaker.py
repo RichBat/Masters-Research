@@ -57,10 +57,24 @@ def get_intensity_range(img, low, density, prec):
     low_index = np.where(intensities == low)[0][0]
     voxels_by_intensity = voxels_by_intensity[low_index:]
     intensities = intensities[low_index:]
-    for intensity in range(len(voxels_by_intensity), 0, -1):
-        if np.sum(voxels_by_intensity[intensity:]) >= density:
+    total_population = voxels_by_intensity.sum()
+    initial_density = int(total_population * density/100)
+    starting_intensity = intensities[-1]
+    '''print("------------------------------------------------------")
+    print("Total Voxels:", total_population)
+    print("Starting Intensity:", starting_intensity)
+    print("Low Intensity:", low)
+    print("Initial Density:", initial_density, " Percentage ", density)
+    print("Length of voxels per intensities", len(voxels_by_intensity), "Length of intensities", len(intensities))'''
+    for intensity in range(len(voxels_by_intensity) - 1, 0, -1):
+        density_found = np.sum(voxels_by_intensity[intensity:])
+        #print("Intensity at", intensities[intensity])
+        #print("Density Found:", density_found)
+        if density_found >= initial_density:
             starting_intensity = intensities[intensity]
+            #print("Starting Intensity Found:", starting_intensity)
             break
+    #print("------------------------------------------------------")
     intensity_range = recursive_intensity_steps(low, starting_intensity, prec)
     intensity_range.insert(0, int(starting_intensity))
     return intensity_range
@@ -75,6 +89,7 @@ def collate_data(input_paths, image_paths=None):
         input_paths = [input_paths]
     for i in input_paths:
         json_result = scrape_json(i)
+        #print(json_result)
         for sample, s_metrics in json_result.items():
             img = None
             if image_paths is not None:
@@ -215,24 +230,93 @@ def intensity_graphs(intensity_dict_list, filter, dens):
                                                        "High_Thesh": i["High_Thesh"]})
 
     for k, v in intensities_by_sample.items():
-        plt.clf()
+        #plt.clf()
         print(k)
+        fig, (ax1, ax2, ax3) = plt.subplots(3)
+        fig.suptitle(k)
+        gradient_threshes = []
         for j in v:
-            intens_range = j["Intensity Range"]
-            voxel_range = j["Voxels per intensity"]
+            print("***************************************************")
+            intens_range = j["Intensity Range"][1:]
+            voxel_range = j["Voxels per intensity"][:-1]
+            print("Total Check:", sum(j["Voxels per intensity"]), j["Total Voxels"], j["Intensity Range"][0], j["Intensity Range"][-1])
+            change_in_voxels = []
+            perc_voxels_per_intensity = []
+            voxel_diff = []
+            total_vox = sum(voxel_range)
+            vox_gradient = []
+            for vox in voxel_range:
+                perc_voxels_per_intensity.append(vox)
+            print("Checking Intensity Range:", intens_range)
+            print("Checking Voxel Range:", voxel_range)
+            for vox in range(1, len(voxel_range)):
+                vox_gradient.append((voxel_range[vox] - voxel_range[vox - 1])/(intens_range[vox] - intens_range[vox - 1])*-1)
+                change_in_voxels.append((voxel_range[vox]/voxel_range[vox - 1]) - 1)
+                voxel_diff.append(voxel_range[vox] - voxel_range[vox - 1])
+            print("Checking Voxel Change:", change_in_voxels)
+            vox_gradient.reverse()
+            max_gradient = max(vox_gradient)
+            max_grad_index = vox_gradient.index(max_gradient)
+            vox_max = sum(voxel_diff)
+            vox_diff_change = []
+            orig_intens_range = []
+            for r in intens_range:
+                orig_intens_range.append(r)
+            #orig_intens_range = intens_range
+            #orig_intens_range.reverse()
+            #perc_voxels_per_intensity.reverse()
+            intens_range = intens_range[1:]
+            voxel_diff.reverse()
+            average_of_change = sum(change_in_voxels) / (len(intens_range) - 1)
+            average_of_change2 = sum(voxel_diff) / (len(voxel_diff))
             intens_range.reverse()
-            voxel_range.reverse()
-            print(intens_range, "\n", j["High_Thesh"])
+            for vox in range(1, len(voxel_diff)):
+                print(intens_range[vox], intens_range[vox - 1], voxel_diff[vox], voxel_diff[vox - 1], voxel_diff[vox]/voxel_diff[vox - 1])
+                vox_diff_change.append(voxel_diff[vox]/voxel_diff[vox - 1])
+            #vox_diff_change.reverse()
+            gradient_threshes.append(intens_range[max_grad_index])
+            print("Max Gradient", max_gradient, "Max Index", max_grad_index, intens_range[max_grad_index])
+            change_in_voxels.reverse()
+            potential_high_thresh = intens_range[max_grad_index]
             high_thresh_voxels = intens_range.index(j["High_Thesh"])
-            plt.plot(intens_range, voxel_range, '-D', markevery=high_thresh_voxels, label=str(j["Precision"]))
-            print("Precision:", j["Precision"], " High Thresh", j["High_Thesh"])
+            orig_thresh_voxels = orig_intens_range.index(j["High_Thesh"])
+            voxel_range.reverse()
+            print("Voxels per intensity:", voxel_range)
+            print("Voxel Differences:", voxel_diff)
+            print("Vox Gradient:", vox_gradient)
+            print(intens_range, "\n", intens_range[high_thresh_voxels])
+            print("-----------------------------")
+            print(intens_range, "\n", change_in_voxels)
+            print("Change at High:", change_in_voxels[high_thresh_voxels])
+            change_around = "Change around: "
+            intensity_around = "Intensities around: "
+            if high_thresh_voxels > 0:
+                change_around += str(change_in_voxels[high_thresh_voxels - 1]) + " "
+                intensity_around += str(intens_range[high_thresh_voxels - 1]) + " "
+            change_around += str(change_in_voxels[high_thresh_voxels]) + " "
+            intensity_around += str(intens_range[high_thresh_voxels]) + " "
+            if high_thresh_voxels < len(change_in_voxels) - 1:
+                change_around += str(change_in_voxels[high_thresh_voxels + 1]) + " "
+                intensity_around += str(intens_range[high_thresh_voxels + 1]) + " "
+            print(change_around)
+            print(intensity_around)
+            print("Average1", average_of_change)
+            print("Average2", average_of_change2)
+            ax1.plot(orig_intens_range, perc_voxels_per_intensity, '-D', markevery=high_thresh_voxels, label=str(j["Precision"]))
+            ax2.plot(vox_gradient, '-', label=str(j["Precision"]))
+            ax3.plot(intens_range, voxel_diff, '-', label=str(j["Precision"]))
+            print("Precision:", j["Precision"], " High Thresh", j["High_Thesh"], max_grad_index, intens_range[max_grad_index])
+        print(gradient_threshes)
+        ax1.set_title("Relative Change")
+        ax2.set_title("Gradient")
+        ax3.set_title("Flat Voxel Differences")
         plt.legend()
         plt.show()
 
 
 
 if __name__ == "__main__":
-    input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\New folder\\"
     correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results\\"
     #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
     #save_data(correct_path, sample_specific_metrics, sample_variant_metrics)
