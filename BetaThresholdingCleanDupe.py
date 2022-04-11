@@ -20,8 +20,8 @@ import json
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],"CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],"CCCP+Baf_2C=0.tif": [[0.093, 0.279], [0.1, 0.17]], "CCCP+Baf_2C=1.tif": [[0.098, 0.39], [0.1, 0.35]],"Con_1C=0.tif": [[0.197, 0.559], [0.14, 0.18]], "Con_1C=2.tif": [[0.168, 0.308], [0.11, 0.2]],"Con_2C=0.tif": [[0.219, 0.566], [0.19, 0.31]], "Con_2C=2.tif": [[0.137, 0.363], [0.13, 0.23]],"HML+C+B_2C=0.tif": [[0.102, 0.55], [0.14, 0.31]], "HML+C+B_2C=1.tif": [[0.09, 0.253], [0.09, 0.18]],"HML+C+B_2C=2.tif": [[0.114, 0.477], [0.11, 0.31]], "LML+C+B_1C=0.tif": [[0.09, 0.152], [0.05, 0.1]],"LML+C+B_1C=1.tif": [[0.102, 0.232], [0.07, 0.15]], "LML+C+B_1C=2.tif": [[0.034, 0.097], [0.024, 0.1]]}
 
 def testing():
-    input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"
-    output_path = "C:\\RESEARCH\\Mitophagy_data\\New folder\\"
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"
+    output_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\"
     images = [f for f in listdir(input_path) if isfile(join(input_path, f))]
     results_record = ""
     extra_noise = False
@@ -117,11 +117,11 @@ def testing():
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Starting Density", starting_density)
                             precision = prec/100
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Precision", precision)
-                            high_thresh, voxels_per_intensity, intensities, total_voxels = high_threshold_nested(img, low_thresh, starting_density/100, precision)
+                            high_thresh, voxels_per_intensity, intensities, total_voxels, voxel_changes = high_threshold_loop(img, low_thresh, starting_density/100, precision)
                             #voxel_changes = change_between_intensities(voxels_per_intensity)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "High_Thresh", float(high_thresh))
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels per intensity", voxels_per_intensity)
-                            #sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels changes", voxel_changes)
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels changes", voxel_changes)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Intensity Range", intensities)
                             if calculate_original:
                                 original_high, voxels_per_intensity, intensities, total_voxels = high_threshold_nested(img, original_low, starting_density/100, precision)
@@ -311,6 +311,135 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     return answer, voxels_per_intensity, voxel_intensities, total_population
 
 
+def high_threshold_loop(img, low, start_density, decay_rate=0.1):
+    voxels_by_intensity, intensities = histogram(img, nbins=256) #This acquires the voxels at each intensity and the intensity at each element
+    #print("Intensities:", intensities, " Low: ", low)
+    low_index = np.where(intensities == low)[0][0]
+    voxels_by_intensity = voxels_by_intensity[low_index:]
+    intensities = intensities[low_index:]
+    img = np.pad(img, 1)
+    voxels_per_intensity = []
+    voxels_intensity = {}
+    #Now the majority of low intensity and noise voxels are discarded
+    template_compare_array = np.zeros_like(img) + 1  # Array of 1's which can be multiplied by each threshold
+    total_population = voxels_by_intensity.sum()
+    initial_density = int(total_population*start_density) #This shall get the number of voxels above the initial high threshold
+    starting_intensity = intensities[-1]
+    for intensity in range(len(voxels_by_intensity) - 1, 0, -1):
+        if np.sum(voxels_by_intensity[intensity:]) >= initial_density:
+            starting_intensity = intensities[intensity]
+            #print("Starting intensity found", starting_intensity)
+            break
+    starting_intensity = max(intensities)
+    #Now the starting high threshold has been acquired the rest can begin
+    range_of_intensities = fixed_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
+    #range_of_intensities.insert(0, int(starting_intensity))
+    array_of_structures = np.zeros_like(img)
+    #print("Range of intensities:", range_of_intensities)
+    range_of_intensities_time_start = time.process_time()
+    for i in range_of_intensities:
+        compare_array = template_compare_array * i
+        results = np.greater_equal(img, compare_array).astype(int)
+        array_of_structures = array_of_structures + results
+    range_of_intensities_time_end = time.process_time()
+    #print("Range of intensities time:", range_of_intensities_time_end-range_of_intensities_time_start)
+    viable_values = np.argwhere(array_of_structures > 0)
+    number_of_viable_structures = viable_values.shape[0]
+    #print("Number of viable voxels:", number_of_viable_structures)
+    '''if number_of_viable_structures > 1000000:
+        print("TOO MANY STRUCTURES")
+        return None'''
+    starting_position = np.max(array_of_structures) #second highest value for highest intensity voxels will be the first set of neighbours
+    accumulated_voxels = 0
+    #print(low)
+    #print(range_of_intensities)
+    #print("-----------------------------------")
+    for pos in range(starting_position, 0, -1):
+        temp_array = np.zeros_like(array_of_structures)  # array of zeros. Will be filled with 1's for joins
+        temp_array[np.where(array_of_structures == pos)] = 1  # Initial highest structures for join array
+        tot = temp_array.sum()
+        accumulated_voxels += tot
+        print("Arrays for bucket:", pos, "Has", tot, "voxels!")
+    #print("-----------------------------------")
+    #print("Total voxels:", accumulated_voxels, "Original total:", total_population)
+    adjacency_array = np.zeros_like(array_of_structures) #array of zeros. Will be filled with 1's for joins
+    adjacency_array[np.where(array_of_structures == starting_position)] = 1 #Initial highest structures for join array
+    old_voxels = np.sum(adjacency_array)
+    voxels_intensity[starting_position] = int(old_voxels)
+    initial_voxels = old_voxels
+    change_by_intensity = []
+    progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
+    voxel_intensities = range_of_intensities
+    repeat = True
+    repeat_prior_voxels = old_voxels
+    '''repeat_new_voxels = np.sum(adjacency_array)
+    if repeat_new_voxels == repeat_prior_voxels:
+        repeat = False
+    else:
+        repeat_prior_voxels = repeat_new_voxels'''
+    loop_count = 0
+    #print(len(range_of_intensities))
+    newly_gained_per_loop = {}
+    while repeat:
+        loop_count += 1
+        for r in range(len(range_of_intensities) - 1, 0, -1):
+            '''for v in viable_values:
+                if array_of_structures[v[0], v[1], v[2]] == r and np.any(adjacency_array[v[0]-1:v[0]+2, v[1]-1:v[1]+2, v[2]-1:v[2]+2]):
+                    adjacency_array[v[0], v[1], v[2]] = 1
+            for rv in np.flip(viable_values, axis=0):
+                if array_of_structures[rv[0], rv[1], rv[2]] == r and np.any(adjacency_array[rv[0]-1:rv[0]+2, rv[1]-1:rv[1]+2, rv[2]-1:rv[2]+2]):
+                    adjacency_array[rv[0], rv[1], rv[2]] = 1'''
+            for v in viable_values:
+                if array_of_structures[v[0], v[1], v[2]] == r and np.any(adjacency_array[v[0] - 1:v[0] + 2, v[1] - 1:v[1] + 2, v[2] - 1:v[2] + 2]):
+                    adjacency_array[v[0], v[1], v[2]] = 1
+            for rv in np.flip(viable_values, axis=0):
+                if array_of_structures[rv[0], rv[1], rv[2]] == r and np.any(adjacency_array[rv[0] - 1:rv[0] + 2, rv[1] - 1:rv[1] + 2, rv[2] - 1:rv[2] + 2]):
+                    adjacency_array[rv[0], rv[1], rv[2]] = 1
+            new_voxels = np.sum(adjacency_array)
+            if r not in newly_gained_per_loop:
+                newly_gained_per_loop[r] = []
+            newly_gained_per_loop[r].append(int(new_voxels) - old_voxels)
+            old_voxels = new_voxels
+            voxels_intensity[r] = int(new_voxels)
+        repeat_new_voxels = np.sum(adjacency_array)  # This will be the sum of all acquired voxels
+        if repeat_new_voxels == repeat_prior_voxels:  # If the number of voxels across all intensities is unchanged
+            repeat = False
+            #print("Number of loops:", loop_count)
+        else:
+            repeat_prior_voxels = repeat_new_voxels
+            #print(voxels_intensity)
+    #print("Voxels per loop per intensity", newly_gained_per_loop)
+    total_voxels_per_intensity = {}
+    total_added = 0
+    for k, v in newly_gained_per_loop.items():
+        v_total = sum(v)
+        total_voxels_per_intensity[k] = v_total
+        total_added += v_total
+    #print("Start Position:", starting_position, "Initial Voxels:", initial_voxels)
+    total_voxels_per_intensity[starting_position] = initial_voxels
+    #print("Total acquired voxels:", total_added)
+    #print(voxels_intensity)
+    #print("Voxels for each intensity:", total_voxels_per_intensity)
+    voxel_values = list(voxels_intensity)
+    voxel_values.sort(reverse=True)
+    voxels_per_intensity.append(total_voxels_per_intensity[starting_position])
+    for v_in in range(starting_position - 1, 0, -1):
+        voxels_per_intensity.append(total_voxels_per_intensity[v_in])
+        new_voxels = voxels_intensity[voxel_values[v_in]]
+        old_voxels = voxels_intensity[voxel_values[v_in + 1]]
+        change = (new_voxels/old_voxels) - 1
+        change_by_intensity.append(change)
+    average_of_change = sum(change_by_intensity) / (len(range_of_intensities) - 1)
+    #print("The average of the change in voxels is", average_of_change)
+    answer = 0
+    for cbi in range(0, len(change_by_intensity), 1):
+        if change_by_intensity[cbi] <= average_of_change:
+            #print("The best threshold is at", range_of_intensities[cbi+1])
+            answer = range_of_intensities[cbi]
+            break
+
+    return answer, voxels_per_intensity, voxel_intensities, (total_added + initial_voxels), change_by_intensity
+
 def calculate_high_threshold(img, low, start_density, decay_rate=0.1, faster=True):
     '''
     - low is used to remove the low intensity and noise voxels which will greatly skew the density
@@ -444,8 +573,9 @@ def fixed_intensity_steps(bottom, top, ratio):
     if step_size == 0:
         print("Step_size is 0", top, bottom)
         step_size = 1
-    for step in range(top, bottom, -1 * step_size):
+    for step in range(bottom, top, step_size):
         steps.append(step)
+    steps.reverse()
     return steps
 
 def recursive_intensity_steps(bottom, top, ratio):

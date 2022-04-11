@@ -247,6 +247,7 @@ def intensity_graphs(intensity_dict_list, filter, dens):
             vox_gradient = []
             for vox in voxel_range:
                 perc_voxels_per_intensity.append(vox)
+            perc_voxels_per_intensity.reverse()
             print("Checking Intensity Range:", intens_range)
             print("Checking Voxel Range:", voxel_range)
             for vox in range(1, len(voxel_range)):
@@ -262,6 +263,7 @@ def intensity_graphs(intensity_dict_list, filter, dens):
             orig_intens_range = []
             for r in intens_range:
                 orig_intens_range.append(r)
+            orig_intens_range.reverse()
             #orig_intens_range = intens_range
             #orig_intens_range.reverse()
             #perc_voxels_per_intensity.reverse()
@@ -302,9 +304,9 @@ def intensity_graphs(intensity_dict_list, filter, dens):
             print(intensity_around)
             print("Average1", average_of_change)
             print("Average2", average_of_change2)
-            ax1.plot(orig_intens_range, perc_voxels_per_intensity, '-D', markevery=high_thresh_voxels, label=str(j["Precision"]))
+            ax1.plot(intens_range, change_in_voxels, '-D', markevery=high_thresh_voxels, label=str(j["Precision"]))
             ax2.plot(vox_gradient, '-', label=str(j["Precision"]))
-            ax3.plot(intens_range, voxel_diff, '-', label=str(j["Precision"]))
+            ax3.plot(intens_range, voxel_diff, '-D', markevery=high_thresh_voxels, label=str(j["Precision"]))
             print("Precision:", j["Precision"], " High Thresh", j["High_Thesh"], max_grad_index, intens_range[max_grad_index])
         print(gradient_threshes)
         ax1.set_title("Relative Change")
@@ -316,13 +318,13 @@ def intensity_graphs(intensity_dict_list, filter, dens):
 
 
 if __name__ == "__main__":
-    input_path = "C:\\RESEARCH\\Mitophagy_data\\New folder\\"
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\"
     correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results\\"
-    #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
-    #save_data(correct_path, sample_specific_metrics, sample_variant_metrics)
-    loaded_data = load_data(correct_path)
-    intensity_dict = loaded_data["Intensity"]
-    intensity_graphs(intensity_dict, "Mean", 1)
+    sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
+    save_data(correct_path, sample_specific_metrics, sample_variant_metrics)
+    #loaded_data = load_data(correct_path)
+    #intensity_dict = loaded_data["Intensity"]
+    #intensity_graphs(intensity_dict, "Mean", 1)
     #filters = loaded_data["Filter"]
     #errors = loaded_data["Error"]
     #filter_graphing(filters, errors)
