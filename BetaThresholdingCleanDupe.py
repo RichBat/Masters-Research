@@ -119,9 +119,19 @@ def testing():
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Precision", precision)
                             high_thresh, voxels_per_intensity, intensities, total_voxels, voxel_changes = high_threshold_loop(img, low_thresh, starting_density/100, precision)
                             #voxel_changes = change_between_intensities(voxels_per_intensity)
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "High_Thresh", float(high_thresh))
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels per intensity", voxels_per_intensity)
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels changes", voxel_changes)
+                            print("Calculated High Threshold:", high_thresh, type(high_thresh))
+                            print("Intensity Range:", intensities, type(intensities))
+                            print("Total number of voxels:", total_voxels, type(total_voxels))
+                            print("Voxels per intensity:", voxels_per_intensity)
+                            voxels_per = []
+                            voxel_ch = []
+                            for v in voxels_per_intensity:
+                                voxels_per.append(str(v))
+                            for v_c in voxel_changes:
+                                voxel_ch.append(str(v_c))
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "High_Thresh", int(high_thresh))
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels per intensity", voxels_per)
+                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels changes", voxel_ch)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Intensity Range", intensities)
                             if calculate_original:
                                 original_high, voxels_per_intensity, intensities, total_voxels = high_threshold_nested(img, original_low, starting_density/100, precision)
@@ -359,7 +369,7 @@ def high_threshold_loop(img, low, start_density, decay_rate=0.1):
         temp_array[np.where(array_of_structures == pos)] = 1  # Initial highest structures for join array
         tot = temp_array.sum()
         accumulated_voxels += tot
-        print("Arrays for bucket:", pos, "Has", tot, "voxels!")
+        #print("Arrays for bucket:", pos, "Has", tot, "voxels!")
     #print("-----------------------------------")
     #print("Total voxels:", accumulated_voxels, "Original total:", total_population)
     adjacency_array = np.zeros_like(array_of_structures) #array of zeros. Will be filled with 1's for joins
@@ -423,13 +433,18 @@ def high_threshold_loop(img, low, start_density, decay_rate=0.1):
     voxel_values = list(voxels_intensity)
     voxel_values.sort(reverse=True)
     voxels_per_intensity.append(total_voxels_per_intensity[starting_position])
+    #print("Total of voxels per intensity:", total_voxels_per_intensity)
+    print(total_voxels_per_intensity)
     for v_in in range(starting_position - 1, 0, -1):
-        voxels_per_intensity.append(total_voxels_per_intensity[v_in])
-        new_voxels = voxels_intensity[voxel_values[v_in]]
-        old_voxels = voxels_intensity[voxel_values[v_in + 1]]
+        #print(v_in)
+        voxels_per_intensity.append(float(total_voxels_per_intensity[v_in]))
+        new_voxels = total_voxels_per_intensity[v_in]
+        old_voxels = total_voxels_per_intensity[v_in + 1]
         change = (new_voxels/old_voxels) - 1
-        change_by_intensity.append(change)
+        change_by_intensity.append(float(change))
     average_of_change = sum(change_by_intensity) / (len(range_of_intensities) - 1)
+    #print(voxels_per_intensity)
+    #print("All intensities added?", starting_position == len(voxels_per_intensity), starting_position, len(voxels_per_intensity))
     #print("The average of the change in voxels is", average_of_change)
     answer = 0
     for cbi in range(0, len(change_by_intensity), 1):
@@ -438,7 +453,7 @@ def high_threshold_loop(img, low, start_density, decay_rate=0.1):
             answer = range_of_intensities[cbi]
             break
 
-    return answer, voxels_per_intensity, voxel_intensities, (total_added + initial_voxels), change_by_intensity
+    return int(answer), voxels_per_intensity, voxel_intensities, int(total_added + initial_voxels), change_by_intensity
 
 def calculate_high_threshold(img, low, start_density, decay_rate=0.1, faster=True):
     '''
@@ -574,7 +589,7 @@ def fixed_intensity_steps(bottom, top, ratio):
         print("Step_size is 0", top, bottom)
         step_size = 1
     for step in range(bottom, top, step_size):
-        steps.append(step)
+        steps.append(int(step))
     steps.reverse()
     return steps
 
