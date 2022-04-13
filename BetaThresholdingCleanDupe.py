@@ -117,7 +117,7 @@ def testing():
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Starting Density", starting_density)
                             precision = prec/100
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Precision", precision)
-                            high_thresh, voxels_per_intensity, intensities, total_voxels, voxel_changes = high_threshold_loop(img, low_thresh, starting_density/100, precision)
+                            high_thresh, voxels_per_intensity, intensities, total_voxels, voxel_changes = high_threshold_nested(img, low_thresh, starting_density/100, precision)
                             #voxel_changes = change_between_intensities(voxels_per_intensity)
                             print("Calculated High Threshold:", high_thresh, type(high_thresh))
                             print("Intensity Range:", intensities, type(intensities))
@@ -129,6 +129,7 @@ def testing():
                                 voxels_per.append(str(v))
                             for v_c in voxel_changes:
                                 voxel_ch.append(str(v_c))
+                            print("Voxel changes:", voxel_ch)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "High_Thresh", int(high_thresh))
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels per intensity", voxels_per)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Voxels changes", voxel_ch)
@@ -253,9 +254,9 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
             starting_intensity = intensities[intensity]
             #print("Starting intensity found", starting_intensity)
             break
-
+    starting_intensity = max(intensities)
     #Now the starting high threshold has been acquired the rest can begin
-    range_of_intensities = recursive_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
+    range_of_intensities = fixed_intensity_steps(low, starting_intensity, decay_rate) #This will provide a list of intensities with which to check for neighbours
     #range_of_intensities.insert(0, int(starting_intensity))
     array_of_structures = np.zeros_like(img)
     #print("Range of intensities:", range_of_intensities)
@@ -281,6 +282,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
     change_by_intensity = []
     progress = "With initially " + str(old_voxels) + " voxels for core structures.\n"
     voxel_intensities = range_of_intensities
+    total_added = 0
     for r in range(1, len(range_of_intensities), 1):
         '''for v in viable_values:
             if array_of_structures[v[0], v[1], v[2]] == r and np.any(adjacency_array[v[0]-1:v[0]+2, v[1]-1:v[1]+2, v[2]-1:v[2]+2]):
@@ -303,7 +305,8 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
             else:
                 repeat_prior_voxels = repeat_new_voxels
         new_voxels = np.sum(adjacency_array)
-        voxels_per_intensity.append(int(new_voxels))
+        total_added = int(new_voxels)
+        voxels_per_intensity.append(int(new_voxels - old_voxels))
         change = (new_voxels/old_voxels) - 1
         progress = progress + "For an intensity of " + str(range_of_intensities[r]) + " the change in voxels is " + str(
             change) + " and the total change is " + str((new_voxels - initial_voxels) / initial_voxels) + "\n"
@@ -318,7 +321,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1):
             answer = range_of_intensities[cbi+1]
             break
     #print(progress)
-    return answer, voxels_per_intensity, voxel_intensities, total_population
+    return answer, voxels_per_intensity, voxel_intensities, total_added, change_by_intensity
 
 
 def high_threshold_loop(img, low, start_density, decay_rate=0.1):
