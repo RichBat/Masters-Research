@@ -95,7 +95,7 @@ def collate_data(input_paths, image_paths=None):
             img = None
             if image_paths is not None:
                 if i in list(image_paths):
-                    image_path = image_paths[i] + sample.split(".")[0] + "Noise000.tif"
+                    image_path = image_paths[i] + sample.split("\\")[-1].split(".")[0] + "Noise000.tif"
                     img = io.imread(image_path)
             sample_specific_metrics[sample] = {}
             threshold_values = s_metrics["All Filter Thresh"]
@@ -175,6 +175,75 @@ def save_data(save_path, sample_specific_metrics, sample_variant_metrics):
                              "Precision":sam_var["Precision"], "Starting Density":sam_var["Starting Density"], "Filter Type":sam_var["Filter Type"], "Sample":sam_var["Sample"]})
         by_error.append({"Sample":sam_var["Sample"], "Richard Error":sam_var["Richard Error"], "Rensu Error":sam_var["Rensu Error"],
                          "Filter Type":sam_var["Filter Type"], "Starting Density":sam_var["Starting Density"], "Precision":sam_var["Precision"]})
+    final_metrics["All Metrics"] = by_sample
+    final_metrics["Filter Specific"] = by_filter
+    final_metrics["Prec Specific"] = by_prec
+    final_metrics["Density Specific"] = by_density
+    final_metrics["Intensity Metrics"] = by_intensity
+    final_metrics["Error Metrics"] = by_error
+    with open(save_path + 'CompleteResults.json', 'w') as j:
+        json.dump(final_metrics, j)
+        print("Saved")
+
+def save_data2(save_path, sample_specific_metrics, sample_variant_metrics):
+    final_metrics = {}
+    final_metrics["Specifics"] = sample_specific_metrics
+    by_sample = []
+    by_filter = {"Otsu":[], "Li":[], "Yen":[], "Triangle":[], "Mean":[]}
+    by_prec = {0.02:[], 0.04:[], 0.06:[], 0.08:[], 0.1:[], 0.12:[], 0.14:[]}
+    by_density = {1:[], 6:[], 11:[], 16:[], 21:[]}
+    by_intensity = []
+    by_error = []
+    for sam_var in sample_variant_metrics:
+        by_sample.append(sam_var)
+        by_filter[sam_var["Filter Type"]].append({"Low_Thresh": sam_var["Low_Thresh"], "Filter_Thresh": sam_var["Filter_Thresh"], "Sample":sam_var["Sample"]})
+        by_prec[sam_var["Precision"]].append({"Low_Thresh": sam_var["Low_Thresh"], "High_Thesh": {"Unlooped - Fixed": sam_var["Unlooped - Fixed - High_Thresh"],
+                                    "Unlooped - AdjDensity": sam_var["Unlooped - AdjDensity - High_Thresh"],
+                                    "Unlooped - FixedDensity": sam_var["Unlooped - FixedDensity - High_Thresh"],
+                                    "Looped - Fixed": sam_var["Looped - Fixed - High_Thresh"], "Looped - AdjDensity": sam_var["Looped - AdjDensity - High_Thresh"],
+                                    "Looped - FixedDensity": sam_var["Looped - FixedDensity - High_Thresh"]},
+                                              "Starting Density": sam_var["Starting Density"], "Sample": sam_var["Sample"]})
+        by_density[sam_var["Starting Density"]].append({"Low_Thresh": sam_var["Low_Thresh"],
+                                    "High_Thesh":{"Unlooped - Fixed": sam_var["Unlooped - Fixed - High_Thresh"],
+                                    "Unlooped - AdjDensity": sam_var["Unlooped - AdjDensity - High_Thresh"],
+                                    "Unlooped - FixedDensity": sam_var["Unlooped - FixedDensity - High_Thresh"],
+                                    "Looped - Fixed": sam_var["Looped - Fixed - High_Thresh"],
+                                    "Looped - AdjDensity": sam_var["Looped - AdjDensity - High_Thresh"],
+                                    "Looped - FixedDensity": sam_var["Looped - FixedDensity - High_Thresh"]},
+                                    "Precision": sam_var["Precision"], "Sample": sam_var["Sample"]})
+
+        by_intensity.append({"High_Thesh": {"Unlooped - Fixed": sam_var["Unlooped - Fixed - High_Thresh"],
+                                    "Unlooped - AdjDensity": sam_var["Unlooped - AdjDensity - High_Thresh"],
+                                    "Unlooped - FixedDensity": sam_var["Unlooped - FixedDensity - High_Thresh"],
+                                    "Looped - Fixed": sam_var["Looped - Fixed - High_Thresh"],
+                                    "Looped - AdjDensity": sam_var["Looped - AdjDensity - High_Thresh"],
+                                    "Looped - FixedDensity": sam_var["Looped - FixedDensity - High_Thresh"]},
+                             "Intensity Range": {"Fixed": sam_var["Fixed - Intensity Range"], "AdjDensity": sam_var["AdjDensity - Intensity Range"],
+                                                "FixedDensity": sam_var["FixedDensity - Intensity Range"]},
+                             "Voxels per intensity": {"Unlooped - Fixed": sam_var["Unlooped - Fixed - Voxels per intensity"],
+                                                     "Unlooped - AdjDensity": sam_var["Unlooped - AdjDensity - Voxels per intensity"],
+                                                     "Unlooped - FixedDensity": sam_var["Unlooped - FixedDensity - Voxels per intensity"],
+                                                     "Looped - Fixed": sam_var["Looped - Fixed - Voxels per intensity"],
+                                                     "Looped - AdjDensity": sam_var["Looped - AdjDensity - Voxels per intensity"],
+                                                     "Looped - FixedDensity": sam_var["Looped - FixedDensity - Voxels per intensity"]},
+                             "Scaled Voxels per intensity": {"Unlooped - Fixed": sam_var["Unlooped - Fixed - Scaled Voxels per intensity"],
+                                                      "Unlooped - AdjDensity": sam_var["Unlooped - AdjDensity - Scaled Voxels per intensity"],
+                                                      "Unlooped - FixedDensity": sam_var["Unlooped - FixedDensity - Scaled Voxels per intensity"],
+                                                      "Looped - Fixed": sam_var["Looped - Fixed - Scaled Voxels per intensity"],
+                                                      "Looped - AdjDensity": sam_var["Looped - AdjDensity - Scaled Voxels per intensity"],
+                                                      "Looped - FixedDensity": sam_var["Looped - FixedDensity - Scaled Voxels per intensity"]},
+                             "Voxel Changes":{"Unlooped - Fixed":sam_var["Unlooped - Fixed - Voxels changes"],
+                                              "Unlooped - AdjDensity":sam_var["Unlooped - AdjDensity - Voxels changes"],
+                                              "Unlooped - FixedDensity":sam_var["Unlooped - FixedDensity - Voxels changes"],
+                                              "Looped - Fixed":sam_var["Looped - Fixed - Voxels changes"],
+                                              "Looped - AdjDensity":sam_var["Looped - AdjDensity - Voxels changes"],
+                                              "Looped - FixedDensity":sam_var["Looped - FixedDensity - Voxels changes"]},
+                             "Total Voxels": sample_specific_metrics[sam_var["Sample"]]["Total Voxels"],
+                             "Precision": sam_var["Precision"], "Starting Density": sam_var["Starting Density"], "Filter Type": sam_var["Filter Type"],
+                             "Sample": sam_var["Sample"], "Low_Thresh": sam_var["Low_Thresh"]})
+
+        by_error.append({"Sample": sam_var["Sample"], "Richard Error": sam_var["Richard Error"], "Rensu Error": sam_var["Rensu Error"],
+                         "Filter Type": sam_var["Filter Type"], "Starting Density": sam_var["Starting Density"], "Precision": sam_var["Precision"]})
     final_metrics["All Metrics"] = by_sample
     final_metrics["Filter Specific"] = by_filter
     final_metrics["Prec Specific"] = by_prec
@@ -442,6 +511,100 @@ def intensity_graphs2(intensity_dict_list, filter, dens):
         plt.legend()
         plt.show()
 
+def convert_to_float(list_of_strings):
+    holder = []
+    for c in list_of_strings:
+        holder.append(float(c))
+    return holder
+
+def intensity_graphs3(intensity_dict_list, filter, dens):
+    intensities_by_sample = {}
+    #print(intensity_dict_list)
+    for i in intensity_dict_list:
+        if i["Sample"] not in intensities_by_sample:
+            intensities_by_sample[i["Sample"]] = []
+        if i["Filter Type"] == filter and i["Starting Density"] == dens:
+            temp_dict = {}
+            intens_range_dict = {}
+            for c in ["Fixed", "AdjDensity", "FixedDensity"]:
+                intens_range_dict[c] = i["Intensity Range"][c][-1],
+                for l in ["Unlooped", "Looped"]:
+                    temp_dict[(l, c)] = {"Scaled Voxels per intensity": convert_to_float(i["Scaled Voxels per intensity"][l + " - " + c]),
+                                        "Voxels per intensity": convert_to_float(i["Voxels per intensity"][l + " - " + c]),
+                                        "Voxel Changes": convert_to_float(i["Voxel Changes"][l + " - " + c]), "High_Thesh": i["High_Thesh"][l + " - " + c]}
+            intensities_by_sample[i["Sample"]].append({"Precision": i["Precision"], "Total Voxels": i["Total Voxels"], "Intensity Range":intens_range_dict,
+                                                       "Low_Thresh": i["Low_Thresh"],
+                                                       "Varied Outputs": temp_dict})
+
+    for k, v in intensities_by_sample.items():
+        sample_name = k.split("\\")[-1]
+        print("Sample:", sample_name)
+        fig, (ax1, ax2, ax3) = plt.subplots(3)
+        fig.suptitle(k)
+        average_scaled_per_prec = {}
+        average_calc_scaled = {}
+        intensities_per_prec = {}
+        scaled_voxels_per_prec = {}
+        scaled_compare = {}
+        voxel_per_prec = {}
+        intensity_to_be_used = {}
+        scaled_vox_indexes = {}
+        low_thresh = {}
+        #if sample_name == "CCCP_1C=0.tif":
+        for j in v:
+            upper_intensity = 255
+            prec = j["Precision"]
+            low_thresh[prec] = j["Low_Thresh"]
+            total_v = j["Total Voxels"]
+            intens_range = j["Intensity Range"]  # Dictionary of three intensity range variations
+            #print("Stuff", intens_range)
+            intensities_per_prec[prec] = intens_range["AdjDensity"]
+            varied_outputs = {"Unlooped":{}, "Looped":{}}
+            intensity_range_configs = ["Fixed", "AdjDensity", "FixedDensity"]
+            for t in intensity_range_configs:
+                varied_outputs["Unlooped"][t] = j["Varied Outputs"][("Unlooped", t)]
+                varied_outputs["Looped"][t] = j["Varied Outputs"][("Looped", t)]
+            #Going to use just unlooped first
+            intens_to_be_used = intens_range["AdjDensity"][0]
+            #print(varied_outputs["Unlooped"]["AdjDensity"])
+            voxel_per_prec[prec] = varied_outputs["Unlooped"]["AdjDensity"]["Voxels per intensity"]
+            rescaled_voxel_diffs = []
+            voxel_per_prec_val = varied_outputs["Unlooped"]["AdjDensity"]["Voxels per intensity"]
+            for t in range(0, len(intens_to_be_used)):
+                if t == 0:
+                    prior_step = 255
+                else:
+                    prior_step = intens_to_be_used[t - 1]
+                current_step = intens_to_be_used[t]
+
+                rescaled_voxel_diffs.append(voxel_per_prec_val[t] / (prior_step - current_step))
+            scaled_vox_average = sum(rescaled_voxel_diffs)/len(rescaled_voxel_diffs)
+            average_scaled_per_prec[prec] = scaled_vox_average
+            scaled_compare[prec] = rescaled_voxel_diffs
+            scaled_vox_average_index = 1
+            rescaled_voxel_diffs.reverse()
+            intens_to_be_used.reverse()
+            for resc in range(len(rescaled_voxel_diffs) - 1, 0, -1):
+                if rescaled_voxel_diffs[resc] >= scaled_vox_average:
+                    scaled_vox_average_index = resc
+                    scaled_vox_indexes[str(j["Precision"])] = intens_to_be_used[scaled_vox_average_index]
+                    #print("Rescaled Voxel Index", rescaled_voxel_diffs[resc], resc)
+                    break
+            #intensity_to_be_used[prec] = intens_to_be_used[scaled_vox_average_index]
+        print("Intensities per prec", intensities_per_prec)
+        print("Voxels per intensity", voxel_per_prec)
+        print("Rescaled Voxels", scaled_compare)
+        print("Average of scaled", average_scaled_per_prec)
+        print("Average Rescaled Intensity:", sum(list(scaled_vox_indexes.values())) / len(list(scaled_vox_indexes)))
+        print("Rensu High", manual_Hysteresis[sample_name][1][1]*255)
+        print("Richard High", manual_Hysteresis[sample_name][0][1]*255)
+        print("Low Thresh", low_thresh)
+        print(scaled_vox_indexes)
+
+
+
+
+
 def thresholded_image_view(img_path, sample_name, low_thresh, high_thresh):
     img = io.imread(img_path + sample_name.split(".")[0] + "Noise000" + ".tif")
     thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh)*255
@@ -455,13 +618,13 @@ def thresholded_image_view(img_path, sample_name, low_thresh, high_thresh):
         plt.show()
 
 if __name__ == "__main__":
-    input_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\"
-    correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results\\"
-    #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
-    #save_data(correct_path, sample_specific_metrics, sample_variant_metrics)
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"]
+    correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results 2\\"
+    #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
+    #save_data2(correct_path, sample_specific_metrics, sample_variant_metrics)
     loaded_data = load_data(correct_path)
     intensity_dict = loaded_data["Intensity"]
-    intensity_graphs2(intensity_dict, "Mean", 1)
+    intensity_graphs3(intensity_dict, "Mean", 1)
     #thresholded_image_view("C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\", "CCCP_1C=0.tif", 53, 173)
     #filters = loaded_data["Filter"]
     #errors = loaded_data["Error"]
