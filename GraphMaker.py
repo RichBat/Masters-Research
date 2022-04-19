@@ -93,12 +93,13 @@ def collate_data(input_paths, image_paths=None):
         #print(json_result)
         for sample, s_metrics in json_result.items():
             img = None
+            sample_specific_metrics[sample] = {}
+            threshold_values = s_metrics["All Filter Thresh"]
             if image_paths is not None:
                 if i in list(image_paths):
                     image_path = image_paths[i] + sample.split("\\")[-1].split(".")[0] + "Noise000.tif"
                     img = io.imread(image_path)
-            sample_specific_metrics[sample] = {}
-            threshold_values = s_metrics["All Filter Thresh"]
+                    sample_specific_metrics[sample]["Image Max"] = int(np.max(img))
             for s, s_val in s_metrics.items():
                 if s != "Sample Variants" and s != "All Filter Thresh":
                     sample_specific_metrics[sample][s] = s_val
@@ -240,7 +241,7 @@ def save_data2(save_path, sample_specific_metrics, sample_variant_metrics):
                                               "Looped - FixedDensity":sam_var["Looped - FixedDensity - Voxels changes"]},
                              "Total Voxels": sample_specific_metrics[sam_var["Sample"]]["Total Voxels"],
                              "Precision": sam_var["Precision"], "Starting Density": sam_var["Starting Density"], "Filter Type": sam_var["Filter Type"],
-                             "Sample": sam_var["Sample"], "Low_Thresh": sam_var["Low_Thresh"]})
+                             "Sample": sam_var["Sample"], "Low_Thresh": sam_var["Low_Thresh"], "Image Max": sample_specific_metrics[sam_var["Sample"]]["Image Max"]})
 
         by_error.append({"Sample": sam_var["Sample"], "Richard Error": sam_var["Richard Error"], "Rensu Error": sam_var["Rensu Error"],
                          "Filter Type": sam_var["Filter Type"], "Starting Density": sam_var["Starting Density"], "Precision": sam_var["Precision"]})
@@ -520,6 +521,7 @@ def convert_to_float(list_of_strings):
 def intensity_graphs3(intensity_dict_list, filter, dens):
     intensities_by_sample = {}
     #print(intensity_dict_list)
+    input_paths = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
     for i in intensity_dict_list:
         if i["Sample"] not in intensities_by_sample:
             intensities_by_sample[i["Sample"]] = []
@@ -533,8 +535,7 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
                                         "Voxels per intensity": convert_to_float(i["Voxels per intensity"][l + " - " + c]),
                                         "Voxel Changes": convert_to_float(i["Voxel Changes"][l + " - " + c]), "High_Thesh": i["High_Thesh"][l + " - " + c]}
             intensities_by_sample[i["Sample"]].append({"Precision": i["Precision"], "Total Voxels": i["Total Voxels"], "Intensity Range":intens_range_dict,
-                                                       "Low_Thresh": i["Low_Thresh"],
-                                                       "Varied Outputs": temp_dict})
+                                                       "Low_Thresh": i["Low_Thresh"], "Image Max": i["Image Max"], "Varied Outputs": temp_dict})
 
     for k, v in intensities_by_sample.items():
         sample_name = k.split("\\")[-1]
@@ -550,9 +551,10 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
         intensity_to_be_used = {}
         scaled_vox_indexes = {}
         low_thresh = {}
-        #if sample_name == "CCCP_1C=0.tif":
+        image_paths = source_images(sample_name, input_paths)
+        image = io.imread(image_paths[1])
         for j in v:
-            upper_intensity = 255
+            image_max = j["Image Max"]
             prec = j["Precision"]
             low_thresh[prec] = j["Low_Thresh"]
             total_v = j["Total Voxels"]
@@ -565,25 +567,40 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
                 varied_outputs["Unlooped"][t] = j["Varied Outputs"][("Unlooped", t)]
                 varied_outputs["Looped"][t] = j["Varied Outputs"][("Looped", t)]
             #Going to use just unlooped first
-            intens_to_be_used = intens_range["AdjDensity"][0]
+            intens_to_be_used = intens_range["FixedDensity"][0]
+            print("Intensity Range:", intens_to_be_used)
             #print(varied_outputs["Unlooped"]["AdjDensity"])
-            voxel_per_prec[prec] = varied_outputs["Unlooped"]["AdjDensity"]["Voxels per intensity"]
+            voxel_per_prec[prec] = varied_outputs["Unlooped"]["FixedDensity"]["Voxels per intensity"]
             rescaled_voxel_diffs = []
-            voxel_per_prec_val = varied_outputs["Unlooped"]["AdjDensity"]["Voxels per intensity"]
+            voxel_per_prec_val = varied_outputs["Unlooped"]["FixedDensity"]["Voxels per intensity"]
             for t in range(0, len(intens_to_be_used)):
                 if t == 0:
-                    prior_step = 255
+                    prior_step = image_max
                 else:
                     prior_step = intens_to_be_used[t - 1]
                 current_step = intens_to_be_used[t]
 
                 rescaled_voxel_diffs.append(voxel_per_prec_val[t] / (prior_step - current_step))
-            scaled_vox_average = sum(rescaled_voxel_diffs)/len(rescaled_voxel_diffs)
+
+            scaled_vox_average = (sum(rescaled_voxel_diffs)/len(rescaled_voxel_diffs))
             average_scaled_per_prec[prec] = scaled_vox_average
             scaled_compare[prec] = rescaled_voxel_diffs
             scaled_vox_average_index = 1
+            rescaled_changes = []
+            for rvd in range(1, len(rescaled_voxel_diffs)):
+                rescaled_changes.append(rescaled_voxel_diffs[rvd]/rescaled_voxel_diffs[rvd - 1])
+            print("Rescaled Voxle Diffs:", rescaled_voxel_diffs)
+            print("Rescaled Changes:", rescaled_changes)
             rescaled_voxel_diffs.reverse()
+            rescaled_changes.reverse()
             intens_to_be_used.reverse()
+            acc_voxels_per_intensity = []
+            running_total = 0
+            for acc in voxel_per_prec_val:
+                running_total += acc
+                acc_voxels_per_intensity.append(running_total)
+            voxel_per_prec_val.reverse()
+            acc_voxels_per_intensity.reverse()
             for resc in range(len(rescaled_voxel_diffs) - 1, 0, -1):
                 if rescaled_voxel_diffs[resc] >= scaled_vox_average:
                     scaled_vox_average_index = resc
@@ -591,19 +608,53 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
                     #print("Rescaled Voxel Index", rescaled_voxel_diffs[resc], resc)
                     break
             #intensity_to_be_used[prec] = intens_to_be_used[scaled_vox_average_index]
+            ax1.plot(intens_to_be_used, rescaled_voxel_diffs, '-D', label=str(j["Precision"]))
+            ax2.plot(intens_to_be_used, voxel_per_prec_val, '-D', label=str(j["Precision"]))
+            ax3.plot(intens_to_be_used[:-1], rescaled_changes, '-D', label=str(j["Precision"]))
+            colour = plt.gca().lines[-1].get_color()
+            ax1.axhline(y=scaled_vox_average, xmin=0, xmax=1, color=colour)
+            ax1.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
+            ax2.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
+            ax3.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
         print("Intensities per prec", intensities_per_prec)
         print("Voxels per intensity", voxel_per_prec)
         print("Rescaled Voxels", scaled_compare)
         print("Average of scaled", average_scaled_per_prec)
-        print("Average Rescaled Intensity:", sum(list(scaled_vox_indexes.values())) / len(list(scaled_vox_indexes)))
+        mean_rescaled_intense = sum(list(scaled_vox_indexes.values())) / len(list(scaled_vox_indexes))
+        errors = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image)
+        print("Errors:", errors)
+        print("Average Rescaled Intensity:", mean_rescaled_intense)
         print("Rensu High", manual_Hysteresis[sample_name][1][1]*255)
         print("Richard High", manual_Hysteresis[sample_name][0][1]*255)
         print("Low Thresh", low_thresh)
         print(scaled_vox_indexes)
+        ax1.set_title("Rescaled Voxels per intensity")
+        ax2.set_title("Voxels per intensity")
+        ax3.set_title("Rescaled Voxel Changes")
+        plt.legend()
+        plt.show()
 
 
+def calculate_error_values(sample_name, low_thresh, high_thresh, image):
+    richard_thresh_params = manual_Hysteresis[sample_name][0]
+    rensu_thresh_params = manual_Hysteresis[sample_name][1]
+    image_max = np.max(image)
+    richard_image = apply_hysteresis_threshold(image, richard_thresh_params[0]*image_max, richard_thresh_params[1]*image_max) * 255
+    rensu_image = apply_hysteresis_threshold(image, rensu_thresh_params[0] * image_max, rensu_thresh_params[1] * image_max) * 255
+    thresholded_images = [richard_image, rensu_image]
+    average_image = np.mean(np.array(thresholded_images), axis=0)
+    auto_image = apply_hysteresis_threshold(image, low_thresh, high_thresh) * 255
+    richard_error = np.average(np.abs(richard_image - auto_image))
+    rensu_error = np.average(np.abs(rensu_image - auto_image))
+    average_error = np.average(np.abs(average_image - auto_image))
+    return [richard_error, rensu_error, average_error]
 
-
+def source_images(sample_name, input_paths):
+    files = [[f, input_path + f] for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f))]
+    for s in files:
+        #print(s[0].split('Noise')[0] + '.tif')
+        if sample_name in s[0].split('Noise')[0] + '.tif':
+            return [sample_name, s[1]]
 
 def thresholded_image_view(img_path, sample_name, low_thresh, high_thresh):
     img = io.imread(img_path + sample_name.split(".")[0] + "Noise000" + ".tif")
