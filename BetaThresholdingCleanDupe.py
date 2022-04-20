@@ -81,7 +81,7 @@ def testing():
             manual_parameters = manual_Hysteresis[filename]
             progress_count = 0
             density_config = [1, 2, 5]
-            prec_config = [2, 15, 2]
+            prec_config = [1, 20, 1]
             filter_variant_count = len(list(filter_results))
             total_steps = int(((density_config[1]-density_config[0])/density_config[2]) + 1)*int(((prec_config[1]-prec_config[0])/prec_config[2]) + 1)*filter_variant_count
             print("Total steps", total_steps)
@@ -143,26 +143,27 @@ def testing():
                             precision = prec/100
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Precision", precision)
                             high_thresh_variants = {}
-                            for unlooped in [True, False]:
-                                if unlooped:
-                                    for op in range(3):
-                                        high_thresh, voxels_per_intensity, scaled_voxels, intensities, total_voxels, voxel_changes, excess = high_threshold_nested(img, low_thresh, starting_density/100, precision, op)
-                                        voxels_per = []
-                                        voxel_ch = []
-                                        voxel_per_scaled = []
-                                        for v in voxels_per_intensity:
-                                            voxels_per.append(str(v))
-                                        for v_s in scaled_voxels:
-                                            voxel_per_scaled.append(str(v_s))
-                                        for v_c in voxel_changes:
-                                            voxel_ch.append(str(v_c))
-                                        intensity_range = []
-                                        for i in intensities:
-                                            intensity_range.append(int(i))
-                                        high_thresh_variants[(unlooped, op)] = {"High_Thresh": high_thresh, "Voxels per intensity": voxels_per,
-                                                                                "Scaled voxels per intensity": voxel_per_scaled, "Intensities": intensity_range,
-                                                                                "Total Voxels": total_voxels, "Voxels changes": voxel_ch, "Excess Voxels": excess}
-                                else:
+                            '''for unlooped in [True, False]:
+                                if unlooped:'''
+                            unlooped = True
+                            for op in range(1, 3, 1):
+                                high_thresh, voxels_per_intensity, scaled_voxels, intensities, total_voxels, voxel_changes, excess = high_threshold_nested(img, low_thresh, starting_density/100, precision, op)
+                                voxels_per = []
+                                voxel_ch = []
+                                voxel_per_scaled = []
+                                for v in voxels_per_intensity:
+                                    voxels_per.append(str(v))
+                                for v_s in scaled_voxels:
+                                    voxel_per_scaled.append(str(v_s))
+                                for v_c in voxel_changes:
+                                    voxel_ch.append(str(v_c))
+                                intensity_range = []
+                                for i in intensities:
+                                    intensity_range.append(int(i))
+                                high_thresh_variants[(unlooped, op)] = {"High_Thresh": high_thresh, "Voxels per intensity": voxels_per,
+                                                                        "Scaled voxels per intensity": voxel_per_scaled, "Intensities": intensity_range,
+                                                                        "Total Voxels": total_voxels, "Voxels changes": voxel_ch, "Excess Voxels": excess}
+                                '''else:
                                     for op in range(3):
                                         high_thresh, voxels_per_intensity, scaled_voxels, intensities, total_voxels, voxel_changes, excess = high_threshold_loop(img, low_thresh, starting_density/100, precision, op)
                                         voxels_per = []
@@ -179,20 +180,20 @@ def testing():
                                             intensity_range.append(int(i))
                                         high_thresh_variants[(unlooped, op)] = {"High_Thresh": high_thresh, "Voxels per intensity": voxels_per,
                                                                                 "Scaled voxels per intensity": voxel_per_scaled, "Intensities": intensity_range,
-                                                                                "Total Voxels": total_voxels, "Voxels changes": voxel_ch, "Excess Voxels": excess}
+                                                                                "Total Voxels": total_voxels, "Voxels changes": voxel_ch, "Excess Voxels": excess}'''
                             #voxel_changes = change_between_intensities(voxels_per_intensity)
                             '''print("Calculated High Threshold:", high_thresh, type(high_thresh))
                             print("Intensity Range:", intensities, type(intensities))
                             print("Total number of voxels:", total_voxels, type(total_voxels))
                             print("Voxels per intensity:", voxels_per_intensity)
                             print("Voxel changes:", voxel_ch)'''
-                            for looping in [True, False]:
+                            for looping in [True]:
                                 prefix1 = ""
                                 if looping:
                                     prefix1 += "Unlooped - "
                                 else:
                                     prefix1 += "Looped - "
-                                for opt in range(3):
+                                for opt in range(1, 3, 1):
                                     prefix2 = ""
                                     if opt == 0:
                                         prefix2 += "Fixed - "
@@ -220,20 +221,20 @@ def testing():
                                 orig_rich, orig_rensu = image_MAE(img, manual_parameters, orig_thresholded_image)
                                 sample_variation_results = addResultsToDictionary(sample_variation_results, "Richard Error", float(orig_rich))
                                 sample_variation_results = addResultsToDictionary(sample_variation_results, "Rensu Error", float(orig_rensu))
-                            thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh)
-                            rich_error, rensu_error = image_MAE(img, manual_parameters, thresholded_image)
-                            sufficient, threshold_voxels, otsu_voxels = noise_adjustment.outlierDetection(thresholded_image, otsu_cutoff, True)
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Richard Error", float(rich_error))
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Rensu Error", float(rensu_error))
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Hyst_Voxels", float(threshold_voxels))
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Filter_Voxels", float(otsu_voxels))
-                            sample_variation_results = addResultsToDictionary(sample_variation_results, "Sufficient", int(sufficient))
-                            results_record = results_record + "Precision: " + str(precision) + "\t A low threshold of " + str(
+                            #thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh)
+                            #rich_error, rensu_error = image_MAE(img, manual_parameters, thresholded_image)
+                            #sufficient, threshold_voxels, otsu_voxels = noise_adjustment.outlierDetection(thresholded_image, otsu_cutoff, True)
+                            #sample_variation_results = addResultsToDictionary(sample_variation_results, "Richard Error", float(rich_error))
+                            #sample_variation_results = addResultsToDictionary(sample_variation_results, "Rensu Error", float(rensu_error))
+                            #sample_variation_results = addResultsToDictionary(sample_variation_results, "Hyst_Voxels", float(threshold_voxels))
+                            #sample_variation_results = addResultsToDictionary(sample_variation_results, "Filter_Voxels", float(otsu_voxels))
+                            #sample_variation_results = addResultsToDictionary(sample_variation_results, "Sufficient", int(sufficient))
+                            '''results_record = results_record + "Precision: " + str(precision) + "\t A low threshold of " + str(
                                 low_thresh) + " and a high threshold of " + str(
                                 high_thresh) + " are determined. Number of Hysteresis voxels = " + str(
                                 threshold_voxels) + " Number of Otsu Voxels*" + str(otsu_cutoff*100) + ": " + str(
                                 otsu_voxels) + " Were there sufficient voxels? " + str(
-                                sufficient) + "\n"
+                                sufficient) + "\n"'''
                             #json_results[filename] = addResultsToDictionary()
                             '''if starting_density % 11 == 0 and prec % 4 == 0:
                                 if not os.path.exists(output_path + filt + "\\"):

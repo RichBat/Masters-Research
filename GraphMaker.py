@@ -550,9 +550,12 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
         voxel_per_prec = {}
         intensity_to_be_used = {}
         scaled_vox_indexes = {}
+        prec_scaled_vox_indexes = {}
         low_thresh = {}
         image_paths = source_images(sample_name, input_paths)
         image = io.imread(image_paths[1])
+        image_max = 0
+        max_intens = {}
         for j in v:
             image_max = j["Image Max"]
             prec = j["Precision"]
@@ -560,7 +563,8 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
             total_v = j["Total Voxels"]
             intens_range = j["Intensity Range"]  # Dictionary of three intensity range variations
             #print("Stuff", intens_range)
-            intensities_per_prec[prec] = intens_range["AdjDensity"]
+            intensities_per_prec[prec] = intens_range["AdjDensity"][0]
+            max_intens[prec] = max(intens_range["AdjDensity"][0])
             varied_outputs = {"Unlooped":{}, "Looped":{}}
             intensity_range_configs = ["Fixed", "AdjDensity", "FixedDensity"]
             for t in intensity_range_configs:
@@ -568,30 +572,33 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
                 varied_outputs["Looped"][t] = j["Varied Outputs"][("Looped", t)]
             #Going to use just unlooped first
             intens_to_be_used = intens_range["FixedDensity"][0]
-            print("Intensity Range:", intens_to_be_used)
+            #print("Intensity Range:", intens_to_be_used)
             #print(varied_outputs["Unlooped"]["AdjDensity"])
-            voxel_per_prec[prec] = varied_outputs["Unlooped"]["FixedDensity"]["Voxels per intensity"]
-            rescaled_voxel_diffs = []
             voxel_per_prec_val = varied_outputs["Unlooped"]["FixedDensity"]["Voxels per intensity"]
+            voxel_per_prec[prec] = voxel_per_prec_val
+            rescaled_voxel_diffs = []
+            prec_rescaled = []
             for t in range(0, len(intens_to_be_used)):
                 if t == 0:
                     prior_step = image_max
                 else:
                     prior_step = intens_to_be_used[t - 1]
                 current_step = intens_to_be_used[t]
-
-                rescaled_voxel_diffs.append(voxel_per_prec_val[t] / (prior_step - current_step))
-
+                rescaled = (voxel_per_prec_val[t] / (prior_step - current_step))
+                rescaled_voxel_diffs.append(rescaled)
+                prec_rescaled.append(rescaled*(0.5 - prec))
             scaled_vox_average = (sum(rescaled_voxel_diffs)/len(rescaled_voxel_diffs))
+            prec_rescaled_average = (sum(prec_rescaled)/len(prec_rescaled))
             average_scaled_per_prec[prec] = scaled_vox_average
             scaled_compare[prec] = rescaled_voxel_diffs
             scaled_vox_average_index = 1
             rescaled_changes = []
             for rvd in range(1, len(rescaled_voxel_diffs)):
                 rescaled_changes.append(rescaled_voxel_diffs[rvd]/rescaled_voxel_diffs[rvd - 1])
-            print("Rescaled Voxle Diffs:", rescaled_voxel_diffs)
-            print("Rescaled Changes:", rescaled_changes)
+            #print("Rescaled Voxle Diffs:", rescaled_voxel_diffs)
+            #print("Rescaled Changes:", rescaled_changes)
             rescaled_voxel_diffs.reverse()
+            prec_rescaled.reverse()
             rescaled_changes.reverse()
             intens_to_be_used.reverse()
             acc_voxels_per_intensity = []
@@ -599,35 +606,51 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
             for acc in voxel_per_prec_val:
                 running_total += acc
                 acc_voxels_per_intensity.append(running_total)
+            calculated_changes = []
+            for c in range(1, len(acc_voxels_per_intensity), 1):
+                calculated_changes.append((acc_voxels_per_intensity[c]/acc_voxels_per_intensity[c - 1]) - 1)
+            calculated_changes.reverse()
+            calc_change_average = sum(calculated_changes)/len(calculated_changes)
             voxel_per_prec_val.reverse()
             acc_voxels_per_intensity.reverse()
             for resc in range(len(rescaled_voxel_diffs) - 1, 0, -1):
                 if rescaled_voxel_diffs[resc] >= scaled_vox_average:
                     scaled_vox_average_index = resc
                     scaled_vox_indexes[str(j["Precision"])] = intens_to_be_used[scaled_vox_average_index]
-                    #print("Rescaled Voxel Index", rescaled_voxel_diffs[resc], resc)
+                    break
+            for prec_resc in range(len(prec_rescaled) - 1, 0, -1):
+                if prec_rescaled[prec_resc] >= prec_rescaled_average:
+                    scaled_vox_prec_average_index = prec_resc
+                    prec_scaled_vox_indexes[str(j["Precision"])] = intens_to_be_used[scaled_vox_prec_average_index]
                     break
             #intensity_to_be_used[prec] = intens_to_be_used[scaled_vox_average_index]
             ax1.plot(intens_to_be_used, rescaled_voxel_diffs, '-D', label=str(j["Precision"]))
-            ax2.plot(intens_to_be_used, voxel_per_prec_val, '-D', label=str(j["Precision"]))
-            ax3.plot(intens_to_be_used[:-1], rescaled_changes, '-D', label=str(j["Precision"]))
+            ax2.plot(intens_to_be_used, prec_rescaled, '-D', label=str(j["Precision"]))
+            ax3.plot(intens_to_be_used[:-1], calculated_changes, '-D', label=str(j["Precision"]))
             colour = plt.gca().lines[-1].get_color()
             ax1.axhline(y=scaled_vox_average, xmin=0, xmax=1, color=colour)
             ax1.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
-            ax2.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
-            ax3.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
+            ax2.axhline(y=prec_rescaled_average, xmin=0, xmax=1, color=colour)
+            ax2.axvline(x=intens_to_be_used[scaled_vox_prec_average_index], ymin=0, ymax=1, color=colour)
+            ax3.axhline(y=calc_change_average, xmin=0, xmax=1, color=colour)
+            #ax3.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
         print("Intensities per prec", intensities_per_prec)
         print("Voxels per intensity", voxel_per_prec)
         print("Rescaled Voxels", scaled_compare)
         print("Average of scaled", average_scaled_per_prec)
         mean_rescaled_intense = sum(list(scaled_vox_indexes.values())) / len(list(scaled_vox_indexes))
-        errors = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image)
-        print("Errors:", errors)
+        mean_prec_rescaled_intense = sum(list(prec_scaled_vox_indexes.values())) / len(list(prec_scaled_vox_indexes))
+        print("Max intensities per prec", max_intens)
+        print("Image Max", image_max)
         print("Average Rescaled Intensity:", mean_rescaled_intense)
-        print("Rensu High", manual_Hysteresis[sample_name][1][1]*255)
-        print("Richard High", manual_Hysteresis[sample_name][0][1]*255)
-        print("Low Thresh", low_thresh)
-        print(scaled_vox_indexes)
+        print("Average Rescaled Weighted by Stepsize:", mean_prec_rescaled_intense)
+        print("Rensu High", manual_Hysteresis[sample_name][1][1]*255, "Rensu Low", manual_Hysteresis[sample_name][1][0]*255)
+        print("Richard High", manual_Hysteresis[sample_name][0][1]*255, "Richard Low", manual_Hysteresis[sample_name][0][0]*255)
+        print("Low Thresh", low_thresh[0.02])
+        print("Scaled Intensity", scaled_vox_indexes)
+        print("Scaled Intensities rescaled by prec", prec_scaled_vox_indexes)
+        errors = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image, False)
+        print("Errors:", errors)
         ax1.set_title("Rescaled Voxels per intensity")
         ax2.set_title("Voxels per intensity")
         ax3.set_title("Rescaled Voxel Changes")
@@ -635,7 +658,7 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
         plt.show()
 
 
-def calculate_error_values(sample_name, low_thresh, high_thresh, image):
+def calculate_error_values(sample_name, low_thresh, high_thresh, image, render=True):
     richard_thresh_params = manual_Hysteresis[sample_name][0]
     rensu_thresh_params = manual_Hysteresis[sample_name][1]
     image_max = np.max(image)
@@ -647,7 +670,42 @@ def calculate_error_values(sample_name, low_thresh, high_thresh, image):
     richard_error = np.average(np.abs(richard_image - auto_image))
     rensu_error = np.average(np.abs(rensu_image - auto_image))
     average_error = np.average(np.abs(average_image - auto_image))
+    if render:
+        overlayed_img = np.stack((richard_image, rensu_image, auto_image), axis=-1)
+        render_image_sequence(overlayed_img, sample_name + " Composite Image")
+        #render_image_sequence(richard_image, sample_name + " Richard Image")
+        #render_image_sequence(rensu_image, sample_name + " Rensu Image")
+        render_image_sequence(auto_image, sample_name + " Auto Image")
+        plt.show()
     return [richard_error, rensu_error, average_error]
+
+def render_image_sequence(image, image_type):
+    number_of_slices = image.shape[0]
+    columns = int(number_of_slices/2)
+    if columns == 0:
+        rows = 1
+        columns = number_of_slices
+    else:
+        rows = 2
+
+    fig, axarr = plt.subplots(rows, columns, figsize=(10, 5))
+    fig.suptitle(image_type)
+    fig.tight_layout()
+    slice = 0
+
+    if rows > 1:
+        for row in range(rows):
+            for column in range(columns):
+                axarr[row, column].imshow(image[slice, :, :])
+                axarr[row, column].set_title("Slice " + str(slice + 1))
+                slice += 1
+    else:
+        for column in range(columns):
+            axarr[column].imshow(image[slice, :, :])
+            axarr[column].set_title("Slice " + str(slice + 1))
+            slice += 1
+    #plt.show()
+
 
 def source_images(sample_name, input_paths):
     files = [[f, input_path + f] for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f))]
