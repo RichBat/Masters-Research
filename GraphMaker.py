@@ -8,6 +8,7 @@ import pandas as pd
 from os import listdir
 from os.path import isfile, join, exists
 from skimage.filters import apply_hysteresis_threshold
+from scipy import interpolate
 
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],
                      "CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],
@@ -536,7 +537,7 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
                                         "Voxel Changes": convert_to_float(i["Voxel Changes"][l + " - " + c]), "High_Thesh": i["High_Thesh"][l + " - " + c]}
             intensities_by_sample[i["Sample"]].append({"Precision": i["Precision"], "Total Voxels": i["Total Voxels"], "Intensity Range":intens_range_dict,
                                                        "Low_Thresh": i["Low_Thresh"], "Image Max": i["Image Max"], "Varied Outputs": temp_dict})
-
+    per_sample_error = {}
     for k, v in intensities_by_sample.items():
         sample_name = k.split("\\")[-1]
         print("Sample:", sample_name)
@@ -550,12 +551,15 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
         voxel_per_prec = {}
         intensity_to_be_used = {}
         scaled_vox_indexes = {}
+        old_scaled_vox_indexes = {}
         prec_scaled_vox_indexes = {}
         low_thresh = {}
         image_paths = source_images(sample_name, input_paths)
         image = io.imread(image_paths[1])
         image_max = 0
         max_intens = {}
+        intersects_per_prec = {}
+        intersect_ave = {}
         for j in v:
             image_max = j["Image Max"]
             prec = j["Precision"]
@@ -609,53 +613,75 @@ def intensity_graphs3(intensity_dict_list, filter, dens):
             calculated_changes = []
             for c in range(1, len(acc_voxels_per_intensity), 1):
                 calculated_changes.append((acc_voxels_per_intensity[c]/acc_voxels_per_intensity[c - 1]) - 1)
-            calculated_changes.reverse()
             calc_change_average = sum(calculated_changes)/len(calculated_changes)
+
+            calculated_changes.reverse()
             voxel_per_prec_val.reverse()
             acc_voxels_per_intensity.reverse()
+            print("Intersection for prec", prec)
+            intersects = determine_intersect(intens_to_be_used[:-1], calculated_changes, calc_change_average)
+            intersects_per_prec[prec] = intersects
+            inters_ave = sum(intersects)/len(intersects)
+            intersect_ave[prec] = inters_ave
+
             for resc in range(len(rescaled_voxel_diffs) - 1, 0, -1):
                 if rescaled_voxel_diffs[resc] >= scaled_vox_average:
                     scaled_vox_average_index = resc
-                    scaled_vox_indexes[str(j["Precision"])] = intens_to_be_used[scaled_vox_average_index]
+                    old_scaled_vox_indexes[str(j["Precision"])] = intens_to_be_used[scaled_vox_average_index]
                     break
             for prec_resc in range(len(prec_rescaled) - 1, 0, -1):
                 if prec_rescaled[prec_resc] >= prec_rescaled_average:
                     scaled_vox_prec_average_index = prec_resc
                     prec_scaled_vox_indexes[str(j["Precision"])] = intens_to_be_used[scaled_vox_prec_average_index]
                     break
+            #scaled_vox_average_intensity = intens_to_be_used[scaled_vox_average_index]
+            rescaled_intensity_intersects = determine_intersect(intens_to_be_used, rescaled_voxel_diffs, scaled_vox_average)
+            scaled_vox_average_intensity = sum(rescaled_intensity_intersects)/len(rescaled_intensity_intersects)
+            scaled_vox_indexes[prec] = scaled_vox_average_intensity
             #intensity_to_be_used[prec] = intens_to_be_used[scaled_vox_average_index]
             ax1.plot(intens_to_be_used, rescaled_voxel_diffs, '-D', label=str(j["Precision"]))
-            ax2.plot(intens_to_be_used, prec_rescaled, '-D', label=str(j["Precision"]))
+            ax2.plot(intens_to_be_used, voxel_per_prec_val, '-D', label=str(j["Precision"]))
             ax3.plot(intens_to_be_used[:-1], calculated_changes, '-D', label=str(j["Precision"]))
             colour = plt.gca().lines[-1].get_color()
             ax1.axhline(y=scaled_vox_average, xmin=0, xmax=1, color=colour)
-            ax1.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
-            ax2.axhline(y=prec_rescaled_average, xmin=0, xmax=1, color=colour)
-            ax2.axvline(x=intens_to_be_used[scaled_vox_prec_average_index], ymin=0, ymax=1, color=colour)
+            ax1.axvline(x=scaled_vox_average_intensity, ymin=0, ymax=1, color=colour)
+            #ax2.axhline(y=prec_rescaled_average, xmin=0, xmax=1, color=colour)
+            #ax2.axvline(x=intens_to_be_used[scaled_vox_prec_average_index], ymin=0, ymax=1, color=colour)
             ax3.axhline(y=calc_change_average, xmin=0, xmax=1, color=colour)
-            #ax3.axvline(x=intens_to_be_used[scaled_vox_average_index], ymin=0, ymax=1, color=colour)
+            ax3.axvline(x=inters_ave, ymin=0, ymax=1, color=colour)
         print("Intensities per prec", intensities_per_prec)
         print("Voxels per intensity", voxel_per_prec)
         print("Rescaled Voxels", scaled_compare)
         print("Average of scaled", average_scaled_per_prec)
         mean_rescaled_intense = sum(list(scaled_vox_indexes.values())) / len(list(scaled_vox_indexes))
         mean_prec_rescaled_intense = sum(list(prec_scaled_vox_indexes.values())) / len(list(prec_scaled_vox_indexes))
+        old_mean_rescaled_intense = sum(list(old_scaled_vox_indexes.values())) / len(list(old_scaled_vox_indexes))
         print("Max intensities per prec", max_intens)
         print("Image Max", image_max)
         print("Average Rescaled Intensity:", mean_rescaled_intense)
+        print("Old Average Rescaled Intensity:", old_mean_rescaled_intense)
         print("Average Rescaled Weighted by Stepsize:", mean_prec_rescaled_intense)
+        print("Richard High", manual_Hysteresis[sample_name][0][1] * 255, "Richard Low", manual_Hysteresis[sample_name][0][0] * 255)
         print("Rensu High", manual_Hysteresis[sample_name][1][1]*255, "Rensu Low", manual_Hysteresis[sample_name][1][0]*255)
-        print("Richard High", manual_Hysteresis[sample_name][0][1]*255, "Richard Low", manual_Hysteresis[sample_name][0][0]*255)
         print("Low Thresh", low_thresh[0.02])
         print("Scaled Intensity", scaled_vox_indexes)
         print("Scaled Intensities rescaled by prec", prec_scaled_vox_indexes)
-        errors = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image, False)
-        print("Errors:", errors)
+        print("Intersection points:", intersects_per_prec)
+        print("Intersection Averages:", intersect_ave)
+        intersect_values = list(intersect_ave.values())
+        intersect_high = sum(intersect_values)/len(intersect_values)
+        print("Changes Intensity Value:", intersect_high)
+        errors1 = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image, False)
+        errors2 = calculate_error_values(sample_name, low_thresh[0.02], intersect_high, image, False)
+        print("Errors with Rescaled:", errors1)
+        print("Errors with Intersect:", errors2)
+        per_sample_error[sample_name] = {"Rescale Errors:": errors1, "Intersect Errors":errors2}
         ax1.set_title("Rescaled Voxels per intensity")
         ax2.set_title("Voxels per intensity")
         ax3.set_title("Rescaled Voxel Changes")
         plt.legend()
         plt.show()
+    print("Errors across all samples", per_sample_error)
 
 
 def calculate_error_values(sample_name, low_thresh, high_thresh, image, render=True):
@@ -706,6 +732,17 @@ def render_image_sequence(image, image_type):
             slice += 1
     #plt.show()
 
+def determine_intersect(x, y, average):
+    intersection_points = []
+    for i in range(0, len(y)):
+        if y[i] == average:
+            intersection_points.append(x[i])
+        else:
+            if i > 0 and ((y[i - 1] < average < y[i]) or (y[i - 1] > average > y[i])):
+                intens_delta = (y[i] - average)*((x[i] - x[i - 1])/(y[i] - y[i - 1]))
+                inters = x[i] - intens_delta
+                intersection_points.append(inters)
+    return intersection_points
 
 def source_images(sample_name, input_paths):
     files = [[f, input_path + f] for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f))]
