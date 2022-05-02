@@ -135,6 +135,7 @@ def testing():
                                 "Rensu Error": None
                             }
                             low_thresh, original_low, otsu_thresh = testing_knee(img, cutoff=1, filter_value=low_filt, log_hist=True)
+                            low_thresh = int(manual_parameters[1][0]*255)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Filter_Thresh", float(otsu_thresh))
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Low_Thresh", float(low_thresh))
                             if calculate_original:
@@ -368,6 +369,8 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
     adjacency_array[np.where(array_of_structures == starting_position)] = 1 #Initial highest structures for join array
     progress_array = np.zeros_like(array_of_structures)
     progress_array += adjacency_array
+    #progress_array = np.zeros((len(range_of_intensities), array_of_structures.shape[1], array_of_structures.shape[2]))
+    #progress_array[0, :, :] += np.amax(adjacency_array, axis=0)
     old_voxels = np.sum(adjacency_array)
     voxels_per_intensity.append(int(old_voxels))
     scaled_intensity_voxels.append(starting_intensity/(starting_intensity - range_of_intensities[0]))
@@ -398,6 +401,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
                 repeat = False
             else:
                 repeat_prior_voxels = repeat_new_voxels
+        #progress_array[r, :, :] += np.amax(adjacency_array, axis=0)
         progress_array += adjacency_array
         new_voxels = np.sum(adjacency_array)
         scaled_by_intensity = upper_intensity - range_of_intensities[r]
@@ -411,6 +415,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
         old_voxels = new_voxels
         change_by_intensity.append(change)
     average_of_change = sum(change_by_intensity) / (len(range_of_intensities) - 1)
+    progress_array = progress_array[1:-1, 1:-1, 1:-1]  # This should remove all padding
     #print("The average of the change in voxels is", average_of_change)
     answer = 0
     for cbi in range(0, len(change_by_intensity), 1):
@@ -419,6 +424,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
             answer = range_of_intensities[cbi+1]
             break
     #print(progress)
+    progress_array.astype('uint8')*255
     return answer, voxels_per_intensity, scaled_intensity_voxels, voxel_intensities, total_added, change_by_intensity, progress_array
 
 
@@ -819,10 +825,10 @@ def testing_knee(img, cutoff=1, filter_value=None, log_hist=False):
             knee_found = False
             #print("True Knee", true_knee)
         if knee <= otsu_thresh or gaussian_knee < gaussian_otsu:
-            #print("Determined knee", knee, gaussian_knee)
-            #print("Standard Intensity", centers[0])
-            #print("Gaussian Intensity", gaussian_centers[0])
-            #print("Otsu Thresh", otsu_thresh)
+            '''print("Determined knee", knee, gaussian_knee)
+            print("Standard Intensity", centers[0])
+            print("Gaussian Intensity", gaussian_centers[0])
+            print("Otsu Thresh", otsu_thresh)'''
             centers = centers[1:]
             counts = counts[1:]
             gaussian_centers = gaussian_centers[1:]
@@ -832,8 +838,9 @@ def testing_knee(img, cutoff=1, filter_value=None, log_hist=False):
             #print("Final Standard Intensity", centers[0])
             #print("Final Gaussian Intensity", gaussian_centers[0])
             #print("Determined knee", knee, gaussian_knee)
-    if not knee_found:
-        first_knee = locator.knee
+    '''if not knee_found:
+        print("Not Found")
+        first_knee = locator.knee'''
     gaussian_knee = glocator.knee
     #print("knees: ", locator.all_knees, glocator.all_knees)
 
@@ -898,40 +905,6 @@ def other_threshold_results(img):
     return result
 
 
-def iterate_through_hysteresis(file_name, input_path):
-    #input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
-    img = io.imread(input_path + file_name)
-    low, __, ___ = testing_knee(img, log_hist=True)
-    #show_hist(img, low, 0.25)
-    total_array = np.zeros_like(img)
-    print("Building Preview")
-    voxels_by_intensity, intensities = histogram(img)
-    low_index = np.where(intensities == low)[0][0]
-    voxels_by_intensity = voxels_by_intensity[low_index:]
-    intensities = intensities[low_index:]
-    voxels_per_high_thresh = []
-    template_compare_array = np.zeros_like(img)
-    for i in intensities:
-        threshold_result = apply_hysteresis_threshold(img, low, i).astype('int')
-        template_compare_array += threshold_result
-        number_of_voxels = threshold_result.sum()
-        voxels_per_high_thresh.append(int(number_of_voxels))
-    return template_compare_array, [intensities, voxels_per_high_thresh]
-
-
-def hysteresis_iterate_batch(samples, input_paths, save_path):
-    relevant_samples = [[f, input_path] for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f)) and f in samples]
-    binarized_sum_batch = {}
-    for rs in relevant_samples:
-        preview, binarized_sum = iterate_through_hysteresis(rs[0], rs[1])
-        binarized_sum_batch[rs[0]] = binarized_sum
-        io.imsave(save_path + "HysteresisPreview" + rs[0], preview)
-    with open(save_path + 'HysteresisPreviewGraphs.json', 'w') as j:
-        json.dump(binarized_sum_batch, j)
-        print("Saved")
-
-
-
 def image_MAE(image, manual_parameters, reference_image):
     first_image = apply_hysteresis_threshold(image, manual_parameters[0][0]*255, manual_parameters[0][1]*255) #Image from my (Richard) parameters
     second_image = apply_hysteresis_threshold(image, manual_parameters[1][0]*255, manual_parameters[1][1]*255) #Image from Rensu's parameters
@@ -941,6 +914,55 @@ def image_MAE(image, manual_parameters, reference_image):
     second_image_error = np.average(np.abs(second_image - automatic_threshold))
     return first_image_error, second_image_error
 
+
+def iterate_through_hysteresis(file_name, input_path):
+    #input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
+    img = io.imread(input_path + file_name)
+    #print(file_name)
+    __, low, ___ = testing_knee(img, log_hist=True)
+    #print("Knee Results:", __, low, ___)
+    #show_hist(img, low, 0.25)
+    total_array = np.zeros_like(img)
+    #print("Building Preview")
+    voxels_by_intensity, intensities = histogram(img)
+    low_index = np.where(intensities == low)[0][0]
+    #print("Low Index:", low_index, intensities)
+    voxels_by_intensity = voxels_by_intensity[low_index:]
+    intensities = intensities[low_index:]
+    voxels_per_high_thresh = []
+    template_compare_array = np.zeros_like(img)
+    intensity_list = []
+    for i in intensities:
+        intensity_list.append(int(i))
+        threshold_result = apply_hysteresis_threshold(img, low, i).astype('uint8')
+        number_of_voxels = threshold_result.sum()
+        template_compare_array = np.maximum(threshold_result*i, template_compare_array)
+        voxels_per_high_thresh.append(int(number_of_voxels))
+    return template_compare_array, [intensity_list, voxels_per_high_thresh]
+
+
+def hysteresis_iterate_batch(input_paths, save_path):
+    relevant_samples = [[f, input_path] for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f))]
+    binarized_sum_batch = {}
+    for rs in relevant_samples:
+        preview, binarized_sum = iterate_through_hysteresis(rs[0], rs[1])
+        if "Noise" in rs[0]:
+            name = rs[0].split("Noise")[0] + ".tif"
+        else:
+            name = rs[0]
+        binarized_sum_batch[name] = binarized_sum
+        io.imsave(save_path + "HysteresisPreview" + name, preview)
+        print(name + " Finished")
+    with open(save_path + 'HysteresisPreviewGraphs.json', 'w') as j:
+        json.dump(binarized_sum_batch, j)
+        print("Saved")
+
+
 if __name__ == "__main__":
     testing()
+    #start_time = time.process_time()
+    #input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
+    #save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
+    #hysteresis_iterate_batch(input_path, save_path)
+    #print("Total Time", time.process_time() - start_time)
     #preview_hysteresis_high('CCCP_1C=0Noise000.tif')

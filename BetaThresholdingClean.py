@@ -135,6 +135,7 @@ def testing():
                                 "Rensu Error": None
                             }
                             low_thresh, original_low, otsu_thresh = testing_knee(img, cutoff=1, filter_value=low_filt, log_hist=True)
+                            low_thresh = int(manual_parameters[1][0]*255)
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Filter_Thresh", float(otsu_thresh))
                             sample_variation_results = addResultsToDictionary(sample_variation_results, "Low_Thresh", float(low_thresh))
                             if calculate_original:
@@ -368,6 +369,8 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
     adjacency_array[np.where(array_of_structures == starting_position)] = 1 #Initial highest structures for join array
     progress_array = np.zeros_like(array_of_structures)
     progress_array += adjacency_array
+    #progress_array = np.zeros((len(range_of_intensities), array_of_structures.shape[1], array_of_structures.shape[2]))
+    #progress_array[0, :, :] += np.amax(adjacency_array, axis=0)
     old_voxels = np.sum(adjacency_array)
     voxels_per_intensity.append(int(old_voxels))
     scaled_intensity_voxels.append(starting_intensity/(starting_intensity - range_of_intensities[0]))
@@ -398,6 +401,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
                 repeat = False
             else:
                 repeat_prior_voxels = repeat_new_voxels
+        #progress_array[r, :, :] += np.amax(adjacency_array, axis=0)
         progress_array += adjacency_array
         new_voxels = np.sum(adjacency_array)
         scaled_by_intensity = upper_intensity - range_of_intensities[r]
@@ -410,6 +414,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
             change) + " and the total change is " + str((new_voxels - initial_voxels) / initial_voxels) + "\n"
         old_voxels = new_voxels
         change_by_intensity.append(change)
+    progress_array = progress_array[1:-1, 1:-1, 1:-1]  # This should remove all padding
     average_of_change = sum(change_by_intensity) / (len(range_of_intensities) - 1)
     #print("The average of the change in voxels is", average_of_change)
     answer = 0
@@ -418,7 +423,7 @@ def high_threshold_nested(img, low, start_density, decay_rate=0.1, range_choice 
             #print("The best threshold is at", range_of_intensities[cbi+1])
             answer = range_of_intensities[cbi+1]
             break
-    #print(progress)
+    progress_array.astype('uint8')*255
     return answer, voxels_per_intensity, scaled_intensity_voxels, voxel_intensities, total_added, change_by_intensity, progress_array
 
 
