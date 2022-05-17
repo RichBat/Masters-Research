@@ -5,11 +5,12 @@ import math
 from skimage.exposure import histogram
 from skimage import data, io
 import pandas as pd
-from os import listdir
+from os import listdir, makedirs
 from os.path import isfile, join, exists
-from skimage.filters import apply_hysteresis_threshold
+from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_li, threshold_yen, threshold_triangle, threshold_mean, gaussian
 from scipy import interpolate
 import tifffile
+from knee_locator import KneeLocator
 
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],
                      "CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],
@@ -518,10 +519,13 @@ def intensity_graphs2(intensity_dict_list, filter, dens):
         plt.show()
 
 def convert_to_float(list_of_strings):
-    holder = []
-    for c in list_of_strings:
-        holder.append(float(c))
-    return holder
+    if list_of_strings is not None:
+        holder = []
+        for c in list_of_strings:
+            holder.append(float(c))
+        return holder
+    else:
+        return None
 
 def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
     intensities_by_sample = {}
@@ -533,14 +537,14 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
         if i["Filter Type"] == filter and i["Starting Density"] == dens:
             temp_dict = {}
             intens_range_dict = {}
-            #print(i["Sample"])
+            print(i["Sample"])
             for c in ["Fixed", "AdjDensity", "FixedDensity"]:
                 if i["Intensity Range"][c] is not None:
-                    intens_range_dict[c] = i["Intensity Range"][c],
-                    for l in ["Unlooped"]: #Removed Looped as it was removed to save processing time
+                    intens_range_dict[c] = i["Intensity Range"][c]
+                    for l in ["Looped", "Unlooped"]: #Removed Looped as it was removed to save processing time
                         temp_dict[(l, c)] = {"Scaled Voxels per intensity": convert_to_float(i["Scaled Voxels per intensity"][l + " - " + c]),
                                             "Voxels per intensity": convert_to_float(i["Voxels per intensity"][l + " - " + c]),
-                                            "Voxel Changes": convert_to_float(i["Voxel Changes"][l + " - " + c]), "High_Thesh": i["High_Thesh"][l + " - " + c]}
+                                            "Voxel Changes": convert_to_float(i["Voxel Changes"][l + " - " + c]), "High_Thresh": i["High_Thesh"][l + " - " + c]}
             intensities_by_sample[i["Sample"]].append({"Precision": i["Precision"], "Total Voxels": i["Total Voxels"], "Intensity Range":intens_range_dict,
                                                        "Low_Thresh": i["Low_Thresh"], "Image Max": i["Image Max"], "Varied Outputs": temp_dict})
     per_sample_error = {}
@@ -568,6 +572,7 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
         max_intens = {}
         intersects_per_prec = {}
         intersect_ave = {}
+        orig_intersect_ace = []
         for j in v:
             prec = j["Precision"]
             if prec not in blocked_prec:
@@ -576,16 +581,17 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
                 total_v = j["Total Voxels"]
                 intens_range = j["Intensity Range"]  # Dictionary of three intensity range variations
                 # print("Stuff", intens_range)
-                intensities_per_prec[prec] = intens_range["FixedDensity"][0]
-                max_intens[prec] = max(intens_range["AdjDensity"][0])
+                intensities_per_prec[prec] = sub_list_detect(intens_range["FixedDensity"])
+                max_intens[prec] = max(sub_list_detect(intens_range["AdjDensity"]))
                 varied_outputs = {"Unlooped": {}, "Looped": {}}
                 intensity_range_configs = ["AdjDensity", "FixedDensity"]  # Removed "Fixed" as it is not in the latest data
                 for t in intensity_range_configs:
                     varied_outputs["Unlooped"][t] = j["Varied Outputs"][("Unlooped", t)]
-                    # varied_outputs["Looped"][t] = j["Varied Outputs"][("Looped", t)]
+                    varied_outputs["Looped"][t] = j["Varied Outputs"][("Looped", t)]
                 # Going to use just unlooped first
-                intens_to_be_used = intens_range["FixedDensity"][0]
-                print("Intensity Range:", intens_to_be_used)
+                intens_to_be_used = sub_list_detect(intens_range["FixedDensity"])
+                high_thresh_orig = varied_outputs["Unlooped"]["FixedDensity"]["High_Thresh"]
+                #print("Intensity Range:", intens_to_be_used)
                 # print(varied_outputs["Unlooped"]["AdjDensity"])
                 voxel_per_prec_val = varied_outputs["Unlooped"]["FixedDensity"]["Voxels per intensity"]
                 voxel_per_prec[prec] = voxel_per_prec_val
@@ -597,7 +603,7 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
                     else:
                         prior_step = intens_to_be_used[t - 1]
                     current_step = intens_to_be_used[t]
-                    print(prior_step, current_step)
+                    #print(prior_step, current_step)
                     if current_step != prior_step:
                         rescaled = (voxel_per_prec_val[t] / (prior_step - current_step))
                     else:
@@ -610,14 +616,36 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
                 scaled_compare[prec] = rescaled_voxel_diffs
                 scaled_vox_average_index = 1
                 rescaled_changes = []
-                print(voxel_per_prec_val)
-                print(rescaled_voxel_diffs)
+                #print(voxel_per_prec_val)
+                #print(rescaled_voxel_diffs)
                 for rvd in range(1, len(rescaled_voxel_diffs)):
                     top_value = rescaled_voxel_diffs[rvd] if rescaled_voxel_diffs[rvd] != 0 else 0.000000000000000000000000000000000000000000000001
                     bottom_value = rescaled_voxel_diffs[rvd - 1] if rescaled_voxel_diffs[rvd - 1] != 0 else 0.000000000000000000000000000000000000000000000001
                     rescaled_changes.append(top_value / bottom_value)
                 # print("Rescaled Voxle Diffs:", rescaled_voxel_diffs)
                 # print("Rescaled Changes:", rescaled_changes)
+                acc_changes = []
+                if image_max != intens_to_be_used[0]:
+                    acc_ch = voxel_per_prec_val[0]/(image_max-intens_to_be_used[0])
+                else:
+                    acc_ch = voxel_per_prec_val[0]
+                for vppv_index in range(1, len(voxel_per_prec_val)):
+                    old_acc_tot = acc_ch
+                    acc_ch += voxel_per_prec_val[vppv_index]/(image_max - intens_to_be_used[vppv_index])
+                    acc_changes.append((acc_ch/old_acc_tot) - 1)
+                acc_change_ave = sum(acc_changes)/len(acc_changes)
+                answer = 0
+                answer_index = 0
+                for cbi in range(0, len(acc_changes), 1):
+                    if acc_changes[cbi] <= acc_change_ave:
+                        # print("The best threshold is at", range_of_intensities[cbi+1])
+                        answer_index = cbi + 1
+                        answer = intens_to_be_used[cbi + 1]
+                        break
+                intersect_orig = determine_intersect(intens_to_be_used[1:], acc_changes, acc_change_ave)
+                #print("Precision:", prec, "With a threshold at", answer)
+                #print("Precision:", prec, "With an intersect at", sum(intersect_orig)/len(intersect_orig))
+                orig_intersect_ace.append(sum(intersect_orig)/len(intersect_orig))
                 rescaled_voxel_diffs.reverse()
                 prec_rescaled.reverse()
                 rescaled_changes.reverse()
@@ -654,17 +682,18 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
                 rescaled_intensity_intersects = determine_intersect(intens_to_be_used, rescaled_voxel_diffs, scaled_vox_average)
                 scaled_vox_average_intensity = sum(rescaled_intensity_intersects) / len(rescaled_intensity_intersects)
                 scaled_vox_indexes[prec] = scaled_vox_average_intensity
+                acc_changes.reverse()
                 # intensity_to_be_used[prec] = intens_to_be_used[scaled_vox_average_index]
-                ax1.plot(intens_to_be_used, rescaled_voxel_diffs, '-D', label=str(j["Precision"]))
-                ax2.plot(intens_to_be_used, voxel_per_prec_val, '-D', label=str(j["Precision"]))
+                ax1.plot(intens_to_be_used, acc_voxels_per_intensity, '-D', label=str(j["Precision"]))
+                ax2.plot(intens_to_be_used[:-1], acc_changes, '-D', label=str(j["Precision"]))
                 ax3.plot(intens_to_be_used[:-1], calculated_changes, '-D', label=str(j["Precision"]))
                 colour = plt.gca().lines[-1].get_color()
-                # ax1.axhline(y=scaled_vox_average, xmin=0, xmax=1, color=colour)
-                # ax1.axvline(x=scaled_vox_average_intensity, ymin=0, ymax=1, color=colour)
-                # ax2.axhline(y=prec_rescaled_average, xmin=0, xmax=1, color=colour)
-                # ax2.axvline(x=intens_to_be_used[scaled_vox_prec_average_index], ymin=0, ymax=1, color=colour)
-                # ax3.axhline(y=calc_change_average, xmin=0, xmax=1, color=colour)
-                # ax3.axvline(x=inters_ave, ymin=0, ymax=1, color=colour)
+                ax1.axhline(y=scaled_vox_average, xmin=0, xmax=1, color=colour)
+                ax1.axvline(x=scaled_vox_average_intensity, ymin=0, ymax=1, color=colour)
+                ax2.axhline(y=acc_change_ave, xmin=0, xmax=1, color=colour)
+                ax2.axvline(x=answer, ymin=0, ymax=1, color=colour)
+                ax3.axhline(y=calc_change_average, xmin=0, xmax=1, color=colour)
+                ax3.axvline(x=inters_ave, ymin=0, ymax=1, color=colour)
         '''print("Intensities per prec", intensities_per_prec)
         print("Voxels per intensity", voxel_per_prec)
         print("Rescaled Voxels", scaled_compare)
@@ -688,26 +717,72 @@ def intensity_graphs3(intensity_dict_list, filter, dens, blocked_prec = []):
         intersect_values = list(intersect_ave.values())
         intersect_high = sum(intersect_values) / len(intersect_values)
         #print("Changes Intensity Value:", intersect_high)
+        orig_intersect_high = sum(orig_intersect_ace)/len(orig_intersect_ace)
         across_samples_thresholds[sample_name] = {"Richard":{"Low:":manual_Hysteresis[sample_name][0][0] * 255, "High:":manual_Hysteresis[sample_name][0][1] * 255},
                                                   "Rensu":{"Low:":manual_Hysteresis[sample_name][1][0] * 255, "High:":manual_Hysteresis[sample_name][1][1] * 255},
                                                   "Auto":{"Low:":low_thresh[0.02], "Ave Rescaled:":mean_rescaled_intense, "Old Ave Rescaled:":old_mean_rescaled_intense,
-                                                          "Change Intensity:":intersect_high}}
-        '''errors1 = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image, False)
-        errors2 = calculate_error_values(sample_name, low_thresh[0.02], intersect_high, image, False)
+                                                          "Change Intensity:":intersect_high, "Orig High:":high_thresh_orig,
+                                                          "Calc Orig Intersect": orig_intersect_high}}
+        errors1 = calculate_error_values(sample_name, low_thresh[0.02], mean_rescaled_intense, image, False)
+        '''errors2 = calculate_error_values(sample_name, low_thresh[0.02], intersect_high, image, False)
         print("Errors with Rescaled:", errors1)
         print("Errors with Intersect:", errors2)
         per_sample_error[sample_name] = {"Rescale Errors:": errors1, "Intersect Errors": errors2}'''
-        ax1.set_title("Rescaled Voxels per intensity")
+        per_sample_error[sample_name] = errors1
+        ax1.set_title("Total Voxels per intensity")
         ax2.set_title("Voxels per intensity")
         ax3.set_title("Rescaled Voxel Changes")
         ax1.axvline(x=mean_rescaled_intense, ymin=0, ymax=1, color='k')
         ax3.axvline(x=intersect_high, ymin=0, ymax=1, color='k')
         plt.legend()
         #plt.show()
+        for k, v in low_thresh.items():
+            low = v
+            break
+        save_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results 3\\Ave_resc\\"
+        generate_composite_img(sample_name, image, low, mean_rescaled_intense, save_path)
     for key, value in across_samples_thresholds.items():
         print("Sample", key)
-        print(value)
-    #print("Errors across all samples", per_sample_error)
+        for k, v in value.items():
+            print(k, v)
+    print(across_samples_thresholds)
+    print("Errors across all samples", per_sample_error)
+
+
+def flatten_list(nested_iter):
+    new_list = []
+    try:
+        current_value = next(nested_iter)
+        if type(current_value) is list:
+            sub_iter = iter(current_value)
+            new_list += flatten_list(sub_iter)
+            resumed_result = flatten_list(nested_iter)
+            if resumed_result is not None:
+                new_list += resumed_result
+        else:
+            new_list += [current_value]
+            next_value = flatten_list(nested_iter)
+            if next_value is None:
+                return new_list
+            else:
+                return new_list + next_value
+    except StopIteration:
+        return None
+    return new_list
+
+
+
+def sub_list_detect(nested_lists):
+    found = False
+    nested_list = None
+    for n in nested_lists:
+        if type(n) is list:
+            nested_list = sub_list_detect(n)
+            found = True
+    if found:
+        nested_lists = nested_list
+    return nested_lists
+
 
 
 def calculate_error_values(sample_name, low_thresh, high_thresh, image, render=True):
@@ -729,7 +804,23 @@ def calculate_error_values(sample_name, low_thresh, high_thresh, image, render=T
         #render_image_sequence(rensu_image, sample_name + " Rensu Image")
         render_image_sequence(auto_image, sample_name + " Auto Image")
         plt.show()
-    return [richard_error, rensu_error, average_error]
+    return {"Richard":richard_error, "Rensu":rensu_error, "Average":average_error}
+
+def generate_composite_img(sample_name, image, low, high, save_path):
+    richard_thresh_params = manual_Hysteresis[sample_name][0]
+    rensu_thresh_params = manual_Hysteresis[sample_name][1]
+    image_max = np.max(image)
+    richard_image = (apply_hysteresis_threshold(image, richard_thresh_params[0]*255, richard_thresh_params[1]*255) * 255).astype('uint8')
+    rensu_image = (apply_hysteresis_threshold(image, rensu_thresh_params[0] * 255, rensu_thresh_params[1] * 255) * 255).astype('uint8')
+    thresholded_images = [richard_image, rensu_image]
+    #average_image = np.mean(np.array(thresholded_images), axis=0)
+    print("Low", low, "High", high)
+    auto_image = (apply_hysteresis_threshold(image, low, high) * 255).astype('uint8')
+    overlayed_img = np.stack((richard_image, rensu_image, auto_image), axis=-1)
+    if not exists(save_path):
+        makedirs(save_path)
+    io.imsave(save_path + "Overlay" + sample_name, overlayed_img)
+
 
 def render_image_sequence(image, image_type):
     number_of_slices = image.shape[0]
@@ -849,21 +940,403 @@ def generate_histogram():
         plt.savefig(input_path + "HysteresisHist" + k.split(".")[0] + ".png")
         plt.clf()
 
+def cum_av_intersections(x, y, smoothed):
+    y_max = max(y)
+    if len(x) != len(y) or len(y) != len(smoothed):
+        print("Not matching", len(x), len(y), len(smoothed))
+        return []
+    else:
+        list_of_intersection_points = []
+        for d in range(0, len(x)):
+            if smoothed[d] == y[d]:
+                list_of_intersection_points.append(x[d])
+            else:
+                if d > 0 and ((y[d - 1] < smoothed[d] < y[d]) or (y[d - 1] > smoothed[d] > y[d])):
+                    intens_delta = (y[d] - smoothed[d]) * ((x[d] - x[d - 1]) / (y[d] - y[d - 1]))
+                    inters = x[d] - intens_delta
+                    list_of_intersection_points.append(inters)
+        mean_of_inter = sum(list_of_intersection_points)/len(list_of_intersection_points)
+        return list_of_intersection_points, mean_of_inter
+
+def rescale_gaussian(values, sensitivity=0):
+    max_val = math.ceil(max(values))
+    resized = 1
+    if max_val == 1:
+        smallest_gap = 1
+        for v in range(1, len(values)):
+            gap = abs(values[v-1] - values[v])
+            if gap < smallest_gap and gap != 0:
+                smallest_gap = gap
+        np_values = np.array(values)
+        max_val = math.ceil((np_values/smallest_gap).max())
+        resized = smallest_gap
+    width = max_val/0.997
+    sigma = width/(3 + sensitivity)
+    print("Sigma", sigma)
+    mu = 0
+    distr = np.random.normal(mu, sigma, 2*int(max_val))
+    if max_val > 1:
+        x_axis = np.linspace(0, int(max_val)+1, int(max_val)+1)
+    else:
+        x_axis = np.linspace(0, 10, 10)
+    bins = x_axis
+    dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu)**2 / (2 * sigma**2))
+    dens = dens/np.max(dens)
+    dens_index = np.argmax(dens)
+    dens = dens[dens_index:]
+    #plt.plot(bins, dens)
+    range_of_means1 = 0
+    range_of_means2 = 0
+    range_weights = 0
+    rescaled_values = []
+    means = []
+    for dv in values:
+        vald = dv / resized
+        rescaled_values.append(dens[int(vald)])
+    for d in range(len(values), 0, -1):
+        sum_scaled = 0
+        weights = 0
+        flipped = 0
+        for v in range(0, d):
+            val = values[v]/resized
+            sum_scaled += v * dens[int(val)]
+            weights += dens[int(val)]
+            flipped += (len(values) - v) * dens[int(val)]
+        new_mean = sum_scaled/d
+        weighted_mean = sum_scaled/weights
+        range_of_means1 += new_mean
+        means.append(new_mean)
+        range_weights += (d + 1)/len(values)
+        range_of_means2 += weighted_mean
+        #flipped_mean = (len(values) - flipped/len(values))
+    plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Rescaled", color='k')
+    other_m = sum(means)/len(means)
+    print("Other M", other_m)
+    print("Current Mean", range_of_means1/len(values))
+    for m in means:
+        plt.axvline(x=m, color='b', linestyle='--')
+    #plt.plot(np.linspace(0, len(values), len(values)), np.array(values)/max_val, label="Original")
+    plt.axvline(x=range_of_means1/len(values), color='r')
+    #plt.axvline(x=other_m, color='g')
+    plt.legend()
+    #plt.show()
+    complete_mean1 = range_of_means1/range_weights
+    complete_mean2 = range_of_means2/range_weights
+    print(range_weights, len(values))
+    print("Both final weights", range_of_means1/range_weights, range_of_means2/range_weights, range_of_means1/len(values), range_of_means2/len(values))
+    return range_of_means1/len(values), range_of_means2/len(values)
+
+def centroid_of_graph(values):
+    x_values = np.linspace(0, len(values), len(values))
+    area = 0
+    for v in values:
+        area += v
+    centroid = 0
+    for i in range(0, len(values)-1):
+        y_weight = i*values[i+1] - (i+1)*values[i]
+        x_weight = (2*i + 1)
+        centroid += x_weight*y_weight
+
+def evaluate_cumulative_hys():
+    input_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
+    histogram_data = "HysteresisPreviewGraphs.json"
+    f = open(input_path + histogram_data)
+    data = json.load(f)
+    f.close()
+    for k, v in data.items():
+        manual_params = manual_Hysteresis[k]
+        richard_high = manual_params[0][1]*255
+        rensu_high = manual_params[1][1]*255
+        intens = v[0][:-3]
+        voxels = v[1][:-3]
+        discrete_voxels = []
+        for t in range(0, len(voxels)-1):
+            discrete_voxels.append(voxels[t] - voxels[t+1])
+        discrete_voxels.append(voxels[-1])
+        log_voxels = np.where(voxels != 0, np.log2(voxels), 0)
+        slopes, slope_points = get_slope(intens, voxels)
+        slopes2, slope_points2 = get_slope(intens, log_voxels)
+        mving_slopes = rolling_average(slopes, 8)
+        mving_slopes_intersect, mean_inters = cum_av_intersections(slope_points, slopes, mving_slopes)
+        mving_slopes2 = rolling_average(slopes2, 8)
+        mving_slopes_intersect2, mean_inters2 = cum_av_intersections(slope_points2, slopes2, mving_slopes2)
+        print("Slope Mean")
+        mean1, mean2 = rescale_gaussian(mving_slopes, 0)
+        mean1 = mean1 + intens[0]
+        print(mving_slopes)
+        '''locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
+        locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
+        print(locator.all_knees)
+        print(locatorlog.all_knees)'''
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, layout='constrained')
+        fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
+        plt.xlabel("Intensity Value")
+        #plt.ylabel("Threshold Voxels")
+        ax1.set_title("Voxels")
+        ax1.axvline(x=richard_high, color='r', label="Richard Manual")
+        ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
+        ax1.plot(intens, voxels)
+        ax1.axvline(x=mean1, color='k')
+        ax2.set_title("Log of Voxels")
+        ax2.axvline(x=richard_high, color='r')
+        ax2.axvline(x=rensu_high, color='b')
+        ax2.plot(intens, log_voxels)
+        ax3.set_title("Slope Graph")
+        ax3.plot(slope_points, slopes)
+        ax3.plot(slope_points, mving_slopes)
+        ax3.axvline(x=richard_high, color='r')
+        ax3.axvline(x=rensu_high, color='b')
+        '''for m in mving_slopes_intersect:
+            ax3.axvline(x=m, color='g')'''
+        ax3.axvline(x=mean1, color='k')
+        ax4.set_title("Voxel Log Slope Graph")
+        ax4.plot(slope_points2, slopes2)
+        ax4.plot(slope_points2, mving_slopes2)
+        ax4.axvline(x=richard_high, color='r')
+        ax4.axvline(x=rensu_high, color='b')
+        '''for m in mving_slopes_intersect2:
+            ax4.axvline(x=m, color='g')'''
+        ax4.axvline(x=mean_inters2, color='k')
+        fig.legend()
+        plt.show()
+
+def rolling_average(counts, window_size=10, rescale=False):
+    adjusted = False
+    if type(counts) is list and window_size > 1:
+        new_list = []
+        for n in range(0, int(window_size/2)):
+            new_list.append(0)
+        counts = new_list + counts + new_list
+        adjusted = True
+    df = pd.DataFrame(counts)
+    moving_average = df.rolling(window_size, center=True).mean()
+    average_results = flatten_list(iter(moving_average.values.tolist()))
+    if adjusted:
+        window_offset = int(window_size/2)
+        average_results = average_results[window_offset:-window_offset]
+        if rescale:
+            print("Prior to rescaling", average_results)
+            for i in range(1, window_offset+1):
+                average_results[i-1] = (average_results[i-1]*10)/i
+                average_results[-i] = (average_results[-i]*10)/i
+            print("Rescaled results", average_results)
+    return average_results
+
+def get_slope(x, y):
+    if len(x) != len(y):
+        print("Inconsistent x and y coordinates")
+        return None, None
+    else:
+        slope_values = []
+        for i in range(1, len(x), 1):
+            slope = abs((y[i] - y[i-1])/(x[i] - x[i-1]))
+            slope_values.append(slope)
+        #new_x = np.linspace(0, len(slope_values), len(slope_values))
+        new_x = x[1:]
+        return slope_values, new_x
+
+def low_thresh_test():
+    input_paths = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
+    files = [input_path + f for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f))]
+    low_thresh_testing_dict = {}
+    for i in files:
+        img = io.imread(i)
+        filter_results = other_threshold_results(img)
+        counts, centers = histogram(img, nbins=256)
+        counts = counts[1:]
+        centers = centers[1:]
+        log_counts2 = np.where(counts != 0, np.log2(counts), 0)
+        log_counts10 = np.where(counts != 0, np.log10(counts), 0)
+        sample_name = i.split('\\')[-1].split("Noise")[0] + ".tif"
+        online_dict = {}
+        for online in [False]:
+            style_dict = {}
+            for style in ["interp1d"]:
+                sens_dict = {}
+                for S in range(1, 15, 1):
+                    s = S/10
+                    knee_finder = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing", S=s, interp_method=style, online=online)
+                    knee_finder_log2 = KneeLocator(x=centers, y=log_counts2, curve="convex", direction="decreasing", S=s, interp_method=style, online=online)
+                    knee_finder_log10 = KneeLocator(x=centers, y=log_counts10, curve="convex", direction="decreasing", S=s, interp_method=style, online=online)
+                    sens_dict[s] = {"Normal": to_str(list(knee_finder.all_knees)), "Log2":to_str(list(knee_finder_log2.all_knees)),
+                                    "Log10":to_str(list(knee_finder_log10.all_knees)),
+                                    "Manual":[str(manual_Hysteresis[sample_name][1][0]*255), str(manual_Hysteresis[sample_name][1][1]*255)],
+                                    "Other Filters":filter_results}
+                    '''knee, first_knee, __ = testing_knee(img, style, online, s, filter_results["Otsu"], False)
+                    log_knee, first_log, ___ = testing_knee(img, style, online, s, filter_results["Otsu"], True)
+                    sens_dict[s] = {"Normal": [str(knee), str(first_knee)], "Log": [str(log_knee), str(first_log)]}'''
+                style_dict[style] = sens_dict
+            online_dict[int(online)] = style_dict
+        #online_dict["Other Filters"] = filter_results
+        low_thresh_testing_dict[sample_name] = online_dict
+    print(low_thresh_testing_dict)
+    with open("C:\\RESEARCH\\Mitophagy_data\\Low_thresh_test_results\\Low_Thresh_Results.json", 'w') as j:
+        json.dump(low_thresh_testing_dict, j)
+        print("Saved")
+
+def to_str(list_items):
+    str_list = []
+    for l in list_items:
+        str_list.append(str(l))
+    return str_list
+
+def other_threshold_results(img):
+    result = {}
+    #threshold_yen, threshold_triangle, threshold_minimum, threshold_mean
+    try:
+        result["Otsu"] = float(threshold_otsu(img))
+    except Exception as e:
+        print("Otsu Failed")
+        print(e)
+    try:
+        result["Li"] = float(threshold_li(img))
+    except Exception as e:
+        print("Li Failed")
+        print(e)
+    try:
+        result["Yen"] = float(threshold_yen(img))
+    except Exception as e:
+        print("Yen Failed")
+        print(e)
+    try:
+        result["Triangle"] = float(threshold_triangle(img))
+    except Exception as e:
+        print("Triangle Failed")
+        print(e)
+    '''try:
+        result["Min"] = float(threshold_minimum(img))
+    except Exception as e:
+        print("Min Failed")
+        print(e)'''
+    try:
+        result["Mean"] = float(threshold_mean(img))
+    except Exception as e:
+        print("Mean Failed")
+        print(e)
+    return result
+
+def testing_knee(img, interp_style, online, sensitivity=1, filter_value=None, log_hist=False):
+    #print("Histogram for knee")
+    counts, centers = histogram(img, nbins=256)
+    counts = counts[1:]
+    centers = centers[1:]
+    gaussian_image = gaussian(img)
+    rescaled_gaussian_image = (gaussian_image/np.max(gaussian_image))*np.max(img)
+    #print("Rescaled Gaussian Otsu", threshold_otsu(rescaled_gaussian_image))
+    norm_gaussian = (gaussian_image/np.max(gaussian_image))*np.max(img)
+    gaussian_counts, gaussian_centers = histogram(norm_gaussian, nbins=256)
+    gaussian_counts, gaussian_centers = ((gaussian_counts/np.max(gaussian_counts))*np.max(counts)).astype('int'), ((gaussian_centers / np.max(gaussian_centers)) * np.max(centers)).astype('int')
+
+    #print("Final Counts: ", counts[-20:-1])
+    if log_hist:
+        counts = np.where(counts != 0, np.log10(counts), 0)
+        gaussian_counts = np.where(gaussian_counts != 0, np.log10(gaussian_counts), 0)
+    #print(centers.shape)
+    '''
+    plt.figure(figsize=(6, 6))
+    plt.plot(centers, counts, color='black')
+    plt.xlabel("Intensity")
+    plt.ylabel("Count")
+    plt.title("Histogram")
+    plt.tight_layout()
+    plt.show()'''
+
+    safe_knee = True
+    if filter_value is None:
+        otsu_thresh = threshold_otsu(img)
+    else:
+        otsu_thresh = filter_value
+    #print("Otsu Thresh:", otsu_thresh)
+    #print("Otsu of Guassian", threshold_otsu(norm_gaussian))
+    gaussian_otsu = threshold_otsu(norm_gaussian)
+    true_knee = 0
+    knee_found = True
+    gaussian_knee = 0
+    first_knee = int(KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing").knee)
+    while safe_knee:
+        locator = KneeLocator(x=centers, y=counts, S=sensitivity, curve="convex", direction="decreasing", interp_method=interp_style, online=online)
+        glocator = KneeLocator(x=gaussian_centers, y=gaussian_counts, S=sensitivity, curve="convex", direction="decreasing", interp_method=interp_style, online=online)
+        knee = int(locator.knee)
+        gaussian_knee = int(glocator.knee)
+        if knee > otsu_thresh and knee_found:
+            true_knee = knee
+            knee_found = False
+            #print("True Knee", true_knee)
+        if knee <= otsu_thresh or gaussian_knee < gaussian_otsu:
+            '''print("Determined knee", knee, gaussian_knee)
+            print("Standard Intensity", centers[0])
+            print("Gaussian Intensity", gaussian_centers[0])
+            print("Otsu Thresh", otsu_thresh)'''
+            centers = centers[1:]
+            counts = counts[1:]
+            gaussian_centers = gaussian_centers[1:]
+            gaussian_counts = gaussian_counts[1:]
+        else:
+            safe_knee = False
+            #print("Final Standard Intensity", centers[0])
+            #print("Final Gaussian Intensity", gaussian_centers[0])
+            #print("Determined knee", knee, gaussian_knee)
+    '''if not knee_found:
+        print("Not Found")
+        first_knee = locator.knee'''
+    gaussian_knee = glocator.knee
+    #print("knees: ", locator.all_knees, glocator.all_knees)
+
+
+    #locator.plot_knee()
+    #plt.show()
+    #knee = int(locator.norm_knee*255)
+
+    return true_knee, first_knee, otsu_thresh
+
+def testing_knee2(img, interp_style, online, sensitivity=1, filter_value=None, log_hist=False):
+
+    counts, centers = histogram(img, nbins=256)
+
+    if log_hist:
+        counts = np.where(counts != 0, np.log10(counts), 0)
+
+    safe_knee = True
+    if filter_value is None:
+        otsu_thresh = threshold_otsu(img)
+    else:
+        otsu_thresh = filter_value
+    true_knee = 0
+    knee_found = True
+    first_knee = int(KneeLocator(x=centers, y=counts, S=sensitivity, curve="convex", direction="decreasing", interp_method=interp_style, online=online).knee)
+    while safe_knee:
+        knee = int(KneeLocator(x=centers, y=counts, S=sensitivity, curve="convex", direction="decreasing", interp_method=interp_style, online=online).knee)
+        if knee > otsu_thresh and knee_found:
+            true_knee = knee
+            knee_found = False
+
+        if knee <= otsu_thresh:
+            centers = centers[1:]
+            counts = counts[1:]
+
+        else:
+            safe_knee = False
+
+
+    return true_knee, first_knee, otsu_thresh
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"]
-    correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results 4\\"
-    generate_histogram()
+    correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results 3\\"
+    #generate_histogram()
+    evaluate_cumulative_hys()
     #image_stitcher(input_path)
     #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
     #save_data2(correct_path, sample_specific_metrics, sample_variant_metrics)
     #loaded_data = load_data(correct_path)
     #intensity_dict = loaded_data["Intensity"]
     #blocked_prec = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15, 0.16, 0.17, 0.18, 0.19]
-    #intensity_graphs3(intensity_dict, "Mean", 1, blocked_prec)
+    #intensity_graphs3(intensity_dict, "Mean", 1)
     #thresholded_image_view("C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\", "CCCP_1C=0.tif", 53, 173)
     #filters = loaded_data["Filter"]
     #errors = loaded_data["Error"]
     #filter_graphing(filters, errors)
+    #low_thresh_test()
     '''Result is that Li, Triangle and Mean are equally low in error. Any can be used for the filter choice atm but this is only for graphing the range of 
     intensities as noise response is unknown and there is no control'''
     '''df = pd.DataFrame(sample_variant_metrics)

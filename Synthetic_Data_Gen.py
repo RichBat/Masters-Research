@@ -11,15 +11,22 @@ class synth_data_gen:
         self.original_shape = original_size
         self.synthetic_image = np.zeros(shape=original_size)
 
-    def noise_generation(self, branches, slope, offset_perc):
+    def volume_generation(self, branches, slope, offset_perc):
         """
-        This function will generate linearly decaying noise around a branch. The noise must starkly drop and then plateau outward for x positions.
+        This function will generate linearly decaying volume around a branch. The noise must starkly drop and then plateau outward for x positions.
         This will be linear or inversely exponential for the moment. This might be generated using a normal distribution in future
         :param branches: The branch coordinates and values
-        :param slope: The rate at which the noise value decreases
+        :param slope: Inversely proportional to the rate of decay of the volume
         :param offset_perc: The initial noise adjacent to the branch will be a percentage of the branch intensity as it radiates outward
         :return: The coordinates with the determined noise values
         """
+        #What if the average of surrounding pixels values is weighted by some decaying curve which decreases as the pixel gets further from the structure centre?
+        sigma = slope
+        estimate_width = int(
+        math.ceil(3 * math.sqrt(sigma)))  # This will return the integer greater than or equal. Therefore 3*math.sqrt(sigma) = 2.2 becomes 3.0
+        for branch, branch_mag in branches.items():
+
+
 
     def generate_branches(self, centre, branch_length, thickness=1, diagonal=False):
         """

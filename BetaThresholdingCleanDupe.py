@@ -919,8 +919,8 @@ def iterate_through_hysteresis(file_name, input_path):
     #input_path = "C:\\RESEARCH\\Mitophagy_data\\3.Pre-Processed\\"
     img = io.imread(input_path + file_name)
     #print(file_name)
-    __, low, ___ = testing_knee(img, log_hist=True)
-    #print("Knee Results:", __, low, ___)
+    low = low_select(img)
+    #print("Knee Results:", low)
     #show_hist(img, low, 0.25)
     total_array = np.zeros_like(img)
     #print("Building Preview")
@@ -957,12 +957,55 @@ def hysteresis_iterate_batch(input_paths, save_path):
         json.dump(binarized_sum_batch, j)
         print("Saved")
 
+def low_select(img):
+    __, normal_knee, ___ = testing_knee(img, log_hist=False)
+    __, log_knee, ___ = testing_knee(img, log_hist=True)
+    otsu_thresh = threshold_otsu(img)
+    if otsu_thresh <= normal_knee:
+        chosen_knee = normal_knee
+    else:
+        chosen_knee = log_knee
+
+    return chosen_knee
+
+def preview_histograms_range(input_path):
+    img = io.imread(input_path)
+    prec = 0.1
+    low_thresh, original_low, otsu_thresh = testing_knee(img, cutoff=1, log_hist=True)
+    voxels_by_intensity, intensities = histogram(img, nbins=256)  # This acquires the voxels at each intensity and the intensity at each element
+    #counts = np.where(voxels_by_intensity != 0, np.log2(voxels_by_intensity), 0)
+    plt.axvline(low_thresh, color='k')
+    low_index = np.where(intensities == original_low)[0][0]
+    plt.plot(intensities, voxels_by_intensity)
+    plt.show()
+    voxels_by_intensity1 = voxels_by_intensity[low_index:]
+    intensities1 = intensities[low_index:]
+    total_population = voxels_by_intensity1.sum()
+    starting_intensity = max(intensities1)
+    range_of_intensities, excess = density_voxel_steps(voxels_by_intensity1, intensities1, total_population, prec, False)
+    range_of_intensities.reverse()
+    print(range_of_intensities)
+    colours = plt.cm.rainbow(np.linspace(0, 1, len(range_of_intensities)))
+    range_of_intensities.append(255)
+    for c in range(1, len(range_of_intensities), 1):
+        lower_index = np.where(intensities == range_of_intensities[c-1])[0][0]
+        upper_index = np.where(intensities == range_of_intensities[c])[0][0]
+        print(range_of_intensities[c-1], range_of_intensities[c])
+        print(intensities[lower_index:upper_index+1])
+        plt.fill_between(intensities[lower_index:upper_index+1], voxels_by_intensity[lower_index:upper_index+1], color=colours[c-1],
+                         label=(str(c)))
+    plt.legend()
+    plt.plot(intensities1, voxels_by_intensity1)
+    plt.show()
+
+
 
 if __name__ == "__main__":
-    testing()
+    #preview_histograms_range("C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\CCCP+Baf_2C=0Noise000.tif")
+    #testing()
     #start_time = time.process_time()
-    #input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
-    #save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
-    #hysteresis_iterate_batch(input_path, save_path)
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
+    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
+    hysteresis_iterate_batch(input_path, save_path)
     #print("Total Time", time.process_time() - start_time)
     #preview_hysteresis_high('CCCP_1C=0Noise000.tif')
