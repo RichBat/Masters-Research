@@ -11,6 +11,7 @@ from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshol
 from scipy import interpolate
 import tifffile
 from knee_locator import KneeLocator
+from sklearn import metrics
 
 manual_Hysteresis = {"CCCP_1C=0.tif": [[0.1, 0.408], [0.1, 0.25]], "CCCP_1C=1.tif": [[0.116, 0.373], [0.09, 0.22]],
                      "CCCP_2C=0.tif": [[0.107, 0.293], [0.09, 0.2]], "CCCP_2C=1.tif": [[0.09, 0.372], [0.08, 0.15]],
@@ -958,7 +959,8 @@ def cum_av_intersections(x, y, smoothed):
         mean_of_inter = sum(list_of_intersection_points)/len(list_of_intersection_points)
         return list_of_intersection_points, mean_of_inter
 
-def rescale_gaussian(values, sensitivity=0):
+
+def gaussian_weights(values, sensitivity=1):
     max_val = math.ceil(max(values))
     resized = 1
     if max_val == 1:
@@ -971,8 +973,51 @@ def rescale_gaussian(values, sensitivity=0):
         max_val = math.ceil((np_values/smallest_gap).max())
         resized = smallest_gap
     width = max_val/0.997
+    sigma = (width/3)*sensitivity
+    mu = 0
+    distr = np.random.normal(mu, sigma, 2*int(max_val))
+    if max_val > 1:
+        x_axis = np.linspace(0, int(max_val)+1, int(max_val)+1)
+    else:
+        x_axis = np.linspace(0, 10, 10)
+    bins = x_axis
+    dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu)**2 / (2 * sigma**2))
+    dens = dens/np.max(dens)
+    dens_index = np.argmax(dens)
+    dens = dens[dens_index:]
+    rescaled_values = []
+    intensity_scaled = []
+    for dv in range(len(values)):
+        vald = values[dv] / resized
+        rescaled_values.append(dens[int(vald)])
+        intensity_scaled.append(vald * dens[int(vald)])
+    '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
+    plt.show()'''
+
+    return rescaled_values
+
+def rescale_gaussian(values, sensitivity=0, voxels=None):
+    max_val = math.ceil(max(values))
+    resized = 1
+    voxel_weights = []
+    if voxels is not None:
+        #This will be for a weighting to determine the percentage of structures thresholded at a specific high threshold
+        maximum_voxels = max(voxels)
+        for voxel in voxels[:-1]:
+            voxel_weights.append(voxel/maximum_voxels)
+        print(voxel_weights)
+    if max_val == 1:
+        smallest_gap = 1
+        for v in range(1, len(values)):
+            gap = abs(values[v-1] - values[v])
+            if gap < smallest_gap and gap != 0:
+                smallest_gap = gap
+        np_values = np.array(values)
+        max_val = math.ceil((np_values/smallest_gap).max())
+        resized = smallest_gap
+    width = max_val/0.997
     sigma = width/(3 + sensitivity)
-    print("Sigma", sigma)
+    #print("Sigma", sigma)
     mu = 0
     distr = np.random.normal(mu, sigma, 2*int(max_val))
     if max_val > 1:
@@ -985,46 +1030,103 @@ def rescale_gaussian(values, sensitivity=0):
     dens_index = np.argmax(dens)
     dens = dens[dens_index:]
     #plt.plot(bins, dens)
+    print("Min for weighting", min(values), min(values)/resized)
     range_of_means1 = 0
     range_of_means2 = 0
     range_weights = 0
     rescaled_values = []
     means = []
-    for dv in values:
-        vald = dv / resized
+    intensity_scaled = []
+    for dv in range(len(values)):
+        vald = values[dv] / resized
         rescaled_values.append(dens[int(vald)])
+        intensity_scaled.append(vald * dens[int(vald)])
+    inner_knee = KneeLocator(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, S=0.1, curve="convex", direction="decreasing")
+    '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
+    plt.show()'''
+    print("Inner Knee:", inner_knee.all_knees)
+    knee = inner_knee.knee
+    print("Rescaled at knee", rescaled_values[int(knee)])
+    plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
+    plt.axvline(x=knee, color='g')
+    plt.show()
+    rescaled_values = rescaled_values[int(knee):]
+    values = values[int(knee):]
+    intensity_scaled = intensity_scaled[int(knee):]
+    auc_value = metrics.auc(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled)
+    print("Auc Value", auc_value)
+    max_intens = max(intensity_scaled)
+    intensity_weights = []
+    intensity_num = 0
+    intensity_denom = 0
+    for iw in range(len(intensity_scaled)):
+        intensity_weights.append(intensity_scaled[iw]/max_intens)
+        intensity_num += (intensity_scaled[iw]/max_intens)*iw
+        intensity_denom += (intensity_scaled[iw]/max_intens)
+    intensity_scaled_centroid = intensity_num/intensity_denom
+    rounded_values = []
+    for t in intensity_scaled:
+        rounded_values.append(t)
+    print("Proper rescaled value range", set(rounded_values), len(list(set(rounded_values))), len(rounded_values))
+    dft = 0
+    denom = 0
+    for c in range(len(values)):
+        if voxels is not None:
+            vox_weight = voxel_weights[c]
+        else:
+            vox_weight = 1
+        dft += c * dens[int(values[c])] * vox_weight
+        denom += dens[int(values[c])]
+    print("Centroid at", dft/denom)
+    window_weighted = []
     for d in range(len(values), 0, -1):
         sum_scaled = 0
         weights = 0
         flipped = 0
         for v in range(0, d):
             val = values[v]/resized
-            sum_scaled += v * dens[int(val)]
+            weighted_val = v * dens[int(val)]
+            if voxels is not None:
+                weighted_val *= voxel_weights[v]
+            sum_scaled += weighted_val
             weights += dens[int(val)]
             flipped += (len(values) - v) * dens[int(val)]
-        new_mean = sum_scaled/d
+        new_mean = (sum_scaled/d)
+        #new_mean = new_mean*(d/len(values))
+        window_weighted.append(sum_scaled/weights)
         weighted_mean = sum_scaled/weights
         range_of_means1 += new_mean
         means.append(new_mean)
         range_weights += (d + 1)/len(values)
         range_of_means2 += weighted_mean
         #flipped_mean = (len(values) - flipped/len(values))
-    plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Rescaled", color='k')
+        '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Rescaled", color='r')
+        plt.axvline(x=d, color='k')
+        plt.axvline(x=weighted_val/weights, color='c')
+        plt.show()'''
+    window_centroid = sum(window_weighted)/len(window_weighted)
+    print("Window Centroid", window_centroid)
     other_m = sum(means)/len(means)
-    print("Other M", other_m)
-    print("Current Mean", range_of_means1/len(values))
-    for m in means:
-        plt.axvline(x=m, color='b', linestyle='--')
-    #plt.plot(np.linspace(0, len(values), len(values)), np.array(values)/max_val, label="Original")
-    plt.axvline(x=range_of_means1/len(values), color='r')
-    #plt.axvline(x=other_m, color='g')
+    #print("Other M", other_m)
+    #print("Current Mean", range_of_means1/len(values))
+    print("Length check", len(intensity_scaled), len(values))
+    '''for m in means:
+        plt.axvline(x=m, color='b', linestyle='--')'''
+    plt.plot(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled, label="Rescaled", color='r')
+    # plt.plot(np.linspace(0, len(values), len(values)), values, label="Original", color='g')
+    plt.axvline(x=range_of_means1/len(rescaled_values), color='k')
+    #plt.axvline(x=inner_knee.knee, color='g')
+    plt.axvline(x=intensity_scaled_centroid, color='c')
+    '''for win in window_weighted:
+        plt.axvline(x=win, color='c')'''
+    plt.axvline(x=window_centroid, color='g', label="Centroid")
     plt.legend()
     #plt.show()
     complete_mean1 = range_of_means1/range_weights
     complete_mean2 = range_of_means2/range_weights
-    print(range_weights, len(values))
-    print("Both final weights", range_of_means1/range_weights, range_of_means2/range_weights, range_of_means1/len(values), range_of_means2/len(values))
-    return range_of_means1/len(values), range_of_means2/len(values)
+    #print(range_weights, len(values))
+    #print("Both final weights", range_of_means1/range_weights, range_of_means2/range_weights, range_of_means1/len(values), range_of_means2/len(values))
+    return (range_of_means1/len(rescaled_values)) + int(knee), (range_of_means2/len(rescaled_values)) + int(knee)
 
 def centroid_of_graph(values):
     x_values = np.linspace(0, len(values), len(values))
@@ -1036,6 +1138,28 @@ def centroid_of_graph(values):
         y_weight = i*values[i+1] - (i+1)*values[i]
         x_weight = (2*i + 1)
         centroid += x_weight*y_weight
+
+def centroid(y, x=None, weights=None):
+    if weights is None:
+        max_y = max(y)
+        weighting = []
+        for w in y:
+            weighting.append(w/max_y)
+    else:
+        weighting = weights
+
+    if x is None:
+        x_axis = np.linspace(0, len(y), len(y))
+    else:
+        x_axis = x
+    dtf = []
+    denom = []
+    for n in range(len(weighting)):
+        dtf.append(x_axis[n] * weighting[n])
+        denom.append(weighting[n])
+    centr = sum(dtf)/sum(denom)
+    print("Calculated Centroid", centr)
+    return centr
 
 def evaluate_cumulative_hys():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
@@ -1056,36 +1180,49 @@ def evaluate_cumulative_hys():
         log_voxels = np.where(voxels != 0, np.log2(voxels), 0)
         slopes, slope_points = get_slope(intens, voxels)
         slopes2, slope_points2 = get_slope(intens, log_voxels)
+        print("Window Size of", 8)
         mving_slopes = rolling_average(slopes, 8)
+        rolling_centroid = centroid(mving_slopes, slope_points)
+        knee_finder = KneeLocator(slope_points, mving_slopes)
+        print("Knees", knee_finder.all_knees)
         mving_slopes_intersect, mean_inters = cum_av_intersections(slope_points, slopes, mving_slopes)
         mving_slopes2 = rolling_average(slopes2, 8)
+        tunable_method(mving_slopes, mving_slopes2)
+        rolling_centroid2 = centroid(mving_slopes2, slope_points2)
         mving_slopes_intersect2, mean_inters2 = cum_av_intersections(slope_points2, slopes2, mving_slopes2)
-        print("Slope Mean")
-        mean1, mean2 = rescale_gaussian(mving_slopes, 0)
+        print("Slope Mean", k)
+        voxel_weights = gaussian_weights(mving_slopes2, 2)
+        voxel_centroid = centroid(voxels[:-1], intens, voxel_weights)
+        square_voxels = []
+        for sv in voxels:
+            square_voxels.append(sv*sv)
+        mean1, mean2 = rescale_gaussian(mving_slopes, 0, square_voxels)
         mean1 = mean1 + intens[0]
-        print(mving_slopes)
+        print("Mean of", mean1)
         '''locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
         locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
         print(locator.all_knees)
         print(locatorlog.all_knees)'''
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, layout='constrained')
+        fig, (ax1, ax3, ax4) = plt.subplots(3, layout='constrained')
         fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
         plt.xlabel("Intensity Value")
         #plt.ylabel("Threshold Voxels")
         ax1.set_title("Voxels")
         ax1.axvline(x=richard_high, color='r', label="Richard Manual")
         ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
+        #ax1.axvline(x=voxel_centroid, color='m')
         ax1.plot(intens, voxels)
         ax1.axvline(x=mean1, color='k')
-        ax2.set_title("Log of Voxels")
+        '''ax2.set_title("Log of Voxels")
         ax2.axvline(x=richard_high, color='r')
         ax2.axvline(x=rensu_high, color='b')
-        ax2.plot(intens, log_voxels)
+        ax2.plot(intens, log_voxels)'''
         ax3.set_title("Slope Graph")
         ax3.plot(slope_points, slopes)
         ax3.plot(slope_points, mving_slopes)
         ax3.axvline(x=richard_high, color='r')
         ax3.axvline(x=rensu_high, color='b')
+        #ax3.axvline(x=rolling_centroid, color='m')
         '''for m in mving_slopes_intersect:
             ax3.axvline(x=m, color='g')'''
         ax3.axvline(x=mean1, color='k')
@@ -1094,9 +1231,10 @@ def evaluate_cumulative_hys():
         ax4.plot(slope_points2, mving_slopes2)
         ax4.axvline(x=richard_high, color='r')
         ax4.axvline(x=rensu_high, color='b')
+        #ax4.axvline(x=rolling_centroid2, color='m')
         '''for m in mving_slopes_intersect2:
             ax4.axvline(x=m, color='g')'''
-        ax4.axvline(x=mean_inters2, color='k')
+        ax4.axvline(x=mean1, color='k')
         fig.legend()
         plt.show()
 
@@ -1135,6 +1273,60 @@ def get_slope(x, y):
         new_x = x[1:]
         return slope_values, new_x
 
+def biased_mean_test():
+    results = []
+    x_axis = []
+    for i in range(200):
+        power = i/10
+        x_axis.append(i)
+        results.append(math.exp(power))
+    total_mean = 0
+    list_of_means = []
+    max_res = max(results)
+    weights = []
+    unshifted_mean = 0
+    for w in results:
+        weights.append(w/max_res)
+        unshifted_mean += w
+    dft = 0
+    for c in range(len(results)):
+        dft += c*weights[c]
+    print("Centroid?", dft/sum(weights))
+    for d in range(len(results), 0, -1):
+        sum_of = 0
+        for v in range(0, d):
+            sum_of += v*weights[v]
+        total_mean += sum_of/d
+        list_of_means.append((sum_of/d))
+    chosen_mean = (total_mean/len(results))*max_res
+    print("Unshifted Mean", unshifted_mean/len(results))
+    intersect = 0
+    for n in range(1, len(results), 1):
+        prior = results[n-1]
+        current = results[n]
+        if chosen_mean >= prior and chosen_mean < current:
+            intersect = n - 1
+            print("Bounds", prior, current)
+    print("Intersection", intersect)
+    plt.axvline(x=intersect, color='r')
+    #plt.axhline(y=chosen_mean, color='g')
+    final_mean = []
+    for m in list_of_means:
+        #plt.axhline(y=m*max_res, color='y')
+        for t in range(1, len(results), 1):
+            prior = results[t - 1]
+            current = results[t]
+            y_val = m*max_res
+            if y_val >= prior and y_val < current:
+                slope = abs(current - prior)
+                position = int(t/slope)
+                #plt.axvline(x=(t-1), color='b')
+                final_mean.append(t-1)
+    print("Mean of means", sum(final_mean)/len(final_mean))
+    #plt.axvline(x=chosen_mean, color='r')
+    plt.plot(x_axis, results, color='k')
+    plt.show()
+
 def low_thresh_test():
     input_paths = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
     files = [input_path + f for input_path in input_paths for f in listdir(input_path) if isfile(join(input_path, f))]
@@ -1153,7 +1345,7 @@ def low_thresh_test():
             style_dict = {}
             for style in ["interp1d"]:
                 sens_dict = {}
-                for S in range(1, 15, 1):
+                for S in range(2, 3, 1):
                     s = S/10
                     knee_finder = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing", S=s, interp_method=style, online=online)
                     knee_finder_log2 = KneeLocator(x=centers, y=log_counts2, curve="convex", direction="decreasing", S=s, interp_method=style, online=online)
@@ -1320,10 +1512,75 @@ def testing_knee2(img, interp_style, online, sensitivity=1, filter_value=None, l
 
     return true_knee, first_knee, otsu_thresh
 
+def tunable_method(slope, log_slope):
+    maxes = []
+    for s in range(1, len(slope)):
+        maxes.append(slope.index(max(slope[:s])))
+    maxes = list(set(maxes))
+    maxes.sort()
+    print("All maxes", maxes)
+    av_max = sum(maxes)/len(maxes)
+    cluster_seperators = find_cluster(maxes)
+    if len(cluster_seperators) > 0:
+        refine_clusters(cluster_seperators, slope, log_slope)
+    fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
+    ax1.plot(np.linspace(0, len(slope), len(slope)), slope, color='r')
+    ax1.axvline(x=av_max, color='g')
+    for t in maxes:
+        ax1.axvline(x=t, color='b')
+        ax2.axvline(x=t, color='b')
+    for g in cluster_seperators:
+        ax1.axvline(x=g, color='k')
+        ax2.axvline(x=g, color='k')
+    ax2.plot(np.linspace(0, len(log_slope), len(log_slope)), log_slope, color='r')
+    plt.show()
+
+def find_cluster(max):
+    max.reverse()
+    print(max)
+    between_max_diff = 0
+    clusters_distances = []
+    clusters = [] # A tuple will be used for the cluster boundaries and the overall size will be assigned to it
+    cluster_sep = []
+    for m in range(1, len(max), 1):
+        between_max_diff = max[m-1] - max[m]
+        clusters_distances.append(between_max_diff)
+        if len(clusters_distances) > 1:
+            rolling = sum(clusters_distances)/len(clusters_distances)
+            rolling_prior = sum(clusters_distances[:-1])/(len(clusters_distances)-1)
+            if rolling > rolling_prior*1.5:
+                cluster_sep.append(max[m] + (max[m-1]-max[m])/2)
+                clusters.append(sum(clusters_distances)+max[m])
+                print(clusters_distances)
+                clusters_distances = []
+    if len(clusters) == 0:
+        clusters = [max[0]]
+    clusters.reverse()
+    return clusters
+
+def refine_clusters(cluster_points, slope, log_slope):
+    print("Clusters", cluster_points)
+    average_slope = []
+    iter_slopes = iter(cluster_points)
+    cluster_top = next(iter_slopes)
+    slope_sum = 0
+    for n in range(len(log_slope)):
+        if n <= cluster_top:
+            slope_sum += log_slope[n]
+        else:
+            average_slope.append(slope_sum/(n-1))
+            slope_sum = log_slope[n]
+            try:
+                cluster_top = next(iter_slopes)
+            except StopIteration:
+                break
+    print("Average Slopes", average_slope)
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"]
     correct_path = "C:\\RESEARCH\\Mitophagy_data\\Testing Data Results 3\\"
     #generate_histogram()
+    #biased_mean_test()
     evaluate_cumulative_hys()
     #image_stitcher(input_path)
     #sample_specific_metrics, sample_variant_metrics = collate_data(input_path, {"C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\":"C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\"})
