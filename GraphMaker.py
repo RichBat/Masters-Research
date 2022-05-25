@@ -1047,9 +1047,9 @@ def rescale_gaussian(values, sensitivity=0, voxels=None):
     print("Inner Knee:", inner_knee.all_knees)
     knee = inner_knee.knee
     print("Rescaled at knee", rescaled_values[int(knee)])
-    plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
+    '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
     plt.axvline(x=knee, color='g')
-    plt.show()
+    plt.show()'''
     rescaled_values = rescaled_values[int(knee):]
     values = values[int(knee):]
     intensity_scaled = intensity_scaled[int(knee):]
@@ -1112,16 +1112,16 @@ def rescale_gaussian(values, sensitivity=0, voxels=None):
     print("Length check", len(intensity_scaled), len(values))
     '''for m in means:
         plt.axvline(x=m, color='b', linestyle='--')'''
-    plt.plot(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled, label="Rescaled", color='r')
+    '''plt.plot(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled, label="Rescaled", color='r')
     # plt.plot(np.linspace(0, len(values), len(values)), values, label="Original", color='g')
     plt.axvline(x=range_of_means1/len(rescaled_values), color='k')
     #plt.axvline(x=inner_knee.knee, color='g')
-    plt.axvline(x=intensity_scaled_centroid, color='c')
+    plt.axvline(x=intensity_scaled_centroid, color='c')'''
     '''for win in window_weighted:
         plt.axvline(x=win, color='c')'''
-    plt.axvline(x=window_centroid, color='g', label="Centroid")
+    '''plt.axvline(x=window_centroid, color='g', label="Centroid")
     plt.legend()
-    #plt.show()
+    plt.show()'''
     complete_mean1 = range_of_means1/range_weights
     complete_mean2 = range_of_means2/range_weights
     #print(range_weights, len(values))
@@ -1163,11 +1163,15 @@ def centroid(y, x=None, weights=None):
 
 def evaluate_cumulative_hys():
     input_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
+    image_paths = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
+    files = {(f.split('\\')[-1].split("Noise")[0] + ".tif"): (image_path + f) for image_path in image_paths for f in listdir(image_path) if isfile(join(image_path, f))}
+    print(files)
     histogram_data = "HysteresisPreviewGraphs.json"
     f = open(input_path + histogram_data)
     data = json.load(f)
     f.close()
     for k, v in data.items():
+        img_path = files[k]
         manual_params = manual_Hysteresis[k]
         richard_high = manual_params[0][1]*255
         rensu_high = manual_params[1][1]*255
@@ -1198,12 +1202,14 @@ def evaluate_cumulative_hys():
             square_voxels.append(sv*sv)
         mean1, mean2 = rescale_gaussian(mving_slopes, 0, square_voxels)
         mean1 = mean1 + intens[0]
+        print("Sample:", k)
+        to_mip(img_path, intens[0], mean1, manual_params, k)
         print("Mean of", mean1)
         '''locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
         locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
         print(locator.all_knees)
         print(locatorlog.all_knees)'''
-        fig, (ax1, ax3, ax4) = plt.subplots(3, layout='constrained')
+        '''fig, (ax1, ax3, ax4) = plt.subplots(3, layout='constrained')
         fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
         plt.xlabel("Intensity Value")
         #plt.ylabel("Threshold Voxels")
@@ -1212,31 +1218,31 @@ def evaluate_cumulative_hys():
         ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
         #ax1.axvline(x=voxel_centroid, color='m')
         ax1.plot(intens, voxels)
-        ax1.axvline(x=mean1, color='k')
+        ax1.axvline(x=mean1, color='k')'''
         '''ax2.set_title("Log of Voxels")
         ax2.axvline(x=richard_high, color='r')
         ax2.axvline(x=rensu_high, color='b')
         ax2.plot(intens, log_voxels)'''
-        ax3.set_title("Slope Graph")
+        '''ax3.set_title("Slope Graph")
         ax3.plot(slope_points, slopes)
         ax3.plot(slope_points, mving_slopes)
         ax3.axvline(x=richard_high, color='r')
-        ax3.axvline(x=rensu_high, color='b')
+        ax3.axvline(x=rensu_high, color='b')'''
         #ax3.axvline(x=rolling_centroid, color='m')
         '''for m in mving_slopes_intersect:
             ax3.axvline(x=m, color='g')'''
-        ax3.axvline(x=mean1, color='k')
+        '''ax3.axvline(x=mean1, color='k')
         ax4.set_title("Voxel Log Slope Graph")
         ax4.plot(slope_points2, slopes2)
         ax4.plot(slope_points2, mving_slopes2)
         ax4.axvline(x=richard_high, color='r')
-        ax4.axvline(x=rensu_high, color='b')
+        ax4.axvline(x=rensu_high, color='b')'''
         #ax4.axvline(x=rolling_centroid2, color='m')
         '''for m in mving_slopes_intersect2:
             ax4.axvline(x=m, color='g')'''
-        ax4.axvline(x=mean1, color='k')
+        '''ax4.axvline(x=mean1, color='k')
         fig.legend()
-        plt.show()
+        plt.show()'''
 
 def rolling_average(counts, window_size=10, rescale=False):
     adjusted = False
@@ -1520,10 +1526,10 @@ def tunable_method(slope, log_slope):
     maxes.sort()
     print("All maxes", maxes)
     av_max = sum(maxes)/len(maxes)
-    cluster_seperators = find_cluster(maxes)
-    if len(cluster_seperators) > 0:
+    cluster_seperators = find_cluster(maxes, len(slope))
+    if len(cluster_seperators) > 1:
         refine_clusters(cluster_seperators, slope, log_slope)
-    fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
+    '''fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
     ax1.plot(np.linspace(0, len(slope), len(slope)), slope, color='r')
     ax1.axvline(x=av_max, color='g')
     for t in maxes:
@@ -1533,41 +1539,68 @@ def tunable_method(slope, log_slope):
         ax1.axvline(x=g, color='k')
         ax2.axvline(x=g, color='k')
     ax2.plot(np.linspace(0, len(log_slope), len(log_slope)), log_slope, color='r')
-    plt.show()
+    plt.show()'''
 
-def find_cluster(max):
+def find_cluster(max, range_of_values):
     max.reverse()
     print(max)
     between_max_diff = 0
     clusters_distances = []
     clusters = [] # A tuple will be used for the cluster boundaries and the overall size will be assigned to it
     cluster_sep = []
+    relative_distance = []
+    clusters.append(max[0])
+    max_differences = []
+    for n in range(1, len(max), 1):
+        between_max_diff = max[n-1] - max[n]
+        max_differences.append(between_max_diff)
+    max_av_distance = sum(max_differences)/len(max_differences)
+
     for m in range(1, len(max), 1):
         between_max_diff = max[m-1] - max[m]
         clusters_distances.append(between_max_diff)
+        relative_distance.append(between_max_diff/range_of_values)
         if len(clusters_distances) > 1:
             rolling = sum(clusters_distances)/len(clusters_distances)
             rolling_prior = sum(clusters_distances[:-1])/(len(clusters_distances)-1)
-            if rolling > rolling_prior*1.5:
+            #print("Differences", rolling, rolling_prior)
+            if rolling > rolling_prior*1.5 or between_max_diff > math.ceil(max_av_distance):
                 cluster_sep.append(max[m] + (max[m-1]-max[m])/2)
-                clusters.append(sum(clusters_distances)+max[m])
-                print(clusters_distances)
+                clusters.append(max[m])
+                #print("Distances", clusters_distances)
                 clusters_distances = []
     if len(clusters) == 0:
         clusters = [max[0]]
     clusters.reverse()
+    max.reverse()
     return clusters
 
 def refine_clusters(cluster_points, slope, log_slope):
     print("Clusters", cluster_points)
+    print("Av Cluster", sum(cluster_points)/len(cluster_points))
     average_slope = []
     iter_slopes = iter(cluster_points)
     cluster_top = next(iter_slopes)
     slope_sum = 0
+    log_intercepts = []
+    slope_of_slopes = []
+    slope_start = 0
     for n in range(len(log_slope)):
+        if n == cluster_top:
+            begin = log_slope[slope_start]
+            end = log_slope[cluster_top]
+            slope_of_slopes.append((end-begin)/(cluster_top-slope_start))
+            slope_start = cluster_top
         if n <= cluster_top:
             slope_sum += log_slope[n]
         else:
+            if n > cluster_top:
+                print("Log Values", log_slope[n-1], log_slope[n-2])
+                m = (log_slope[n-1] - log_slope[n-2])
+                log_inter = m*(cluster_top - n + 2) + log_slope[n-2]
+            else:
+                log_inter = log_slope[n]
+            log_intercepts.append(log_inter)
             average_slope.append(slope_sum/(n-1))
             slope_sum = log_slope[n]
             try:
@@ -1575,6 +1608,77 @@ def refine_clusters(cluster_points, slope, log_slope):
             except StopIteration:
                 break
     print("Average Slopes", average_slope)
+    percentage_average = []
+    change_in_slope = []
+    for a in range(1, len(average_slope)):
+        percentage_average.append((a, average_slope[a]/average_slope[a-1]))
+        change_in_slope.append((a, (slope_of_slopes[a] / slope_of_slopes[a-1])))
+        #print("Percentage difference", a-1, "and", a, "is", (average_slope[a]/average_slope[a-1])*100, "Change in slope from", a - 1, "to", a, ":", (slope_of_slopes[a] / slope_of_slopes[a - 1]) * 100)
+    percentage_average = sorted(percentage_average, key=lambda x: x[1])
+    change_in_slope = sorted(change_in_slope, key=lambda x: x[1])
+    rankings = {}
+    #print(percentage_average, change_in_slope)
+    for t in range(len(percentage_average)):
+        rankings[t+1] = 0
+    for y in range(len(percentage_average)):
+        #print("Average", percentage_average[y][0], "Slope", change_in_slope[y][0])
+        rankings[percentage_average[y][0]] += y + 1
+        rankings[change_in_slope[y][0]] += y + 1
+        #print(rankings)
+    #print("Log Intercepts", log_intercepts)
+    ordered_rankings = sorted(rankings, key=rankings.get)
+    cutoff_max = list(ordered_rankings)[0] + 1
+    print("Cutoff Max", cutoff_max - 1)
+    print(average_slope[:cutoff_max])
+    better_cutoff = average_slope.index(max(average_slope[:cutoff_max]))
+    print("Better Cutoff:", better_cutoff)
+    max_log_index = average_slope.index(max(average_slope))
+    print("Max in range:", log_slope[cluster_points[better_cutoff]])
+    print("Average across segment:", sum(log_slope[:cluster_points[better_cutoff]])/len(log_slope[:cluster_points[better_cutoff]]))
+    print("Min across segment:", min(log_slope[:cluster_points[better_cutoff]]))
+    #print(cluster_points[max_log_index])
+    #print("Slopes of slopes", slope_of_slopes)
+
+def to_mip(image_path, low_thresh, high_thresh, manual_params, name):
+    save_name = name.split(".")[0]
+    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\MIP\\"
+    img = io.imread(image_path)
+    #io.imshow(img[0])
+    thresholded_image = apply_hysteresis_threshold(img, low_thresh, high_thresh).astype('int')
+    masked_image = np.amax(img*thresholded_image, axis=0)
+    mip_orig = np.amax(img, axis=0)
+    richard_high = manual_params[0][1] * 255
+    richard_low = manual_params[0][0] * 255
+    richard_thresholded = apply_hysteresis_threshold(img, richard_low, richard_high).astype('int')
+    richard_mip = np.amax(img*richard_thresholded, axis=0)
+    rensu_high = manual_params[1][1] * 255
+    rensu_low = manual_params[1][0] * 255
+    rensu_thresholded = apply_hysteresis_threshold(img, rensu_low, rensu_high).astype('int')
+    rensu_mip = np.amax(img * rensu_thresholded, axis=0)
+    #plt.subplot(2, 2, 1)
+    #plt.imshow(mip_orig)
+    plt.imsave(save_path + save_name + "Orig.png", mip_orig)
+    #plt.title("Original")
+    zero_array = np.zeros_like(mip_orig)
+    #rgb_img = np.stack((mip_orig, masked_image, zero_array), axis=-1)
+    #io.imshow(rgb_img)
+    #plt.subplot(2, 2, 2)
+    #plt.imshow(masked_image)
+    plt.imsave(save_path + save_name + "Auto.png", masked_image)
+    #plt.title("Auto")
+    #plt.subplot(2, 2, 3)
+    #plt.imshow(rensu_mip)
+    plt.imsave(save_path + save_name + "Rensu.png", rensu_mip)
+    #plt.title("Rensu")
+    #plt.subplot(2, 2, 4)
+    #plt.imshow(richard_mip)
+    plt.imsave(save_path + save_name + "Rich.png", richard_mip)
+    #plt.title("Richard")
+    #plt.show()
+    rgb_img = np.stack((rensu_mip, richard_mip, masked_image), axis=-1).astype('uint8')
+    plt.imsave(save_path + save_name + "RGB.png", rgb_img)
+
+
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Output 2\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Output\\"]
