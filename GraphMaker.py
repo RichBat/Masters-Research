@@ -996,14 +996,20 @@ def gaussian_weights(values, sensitivity=1):
 
     return rescaled_values
 
-def rescale_gaussian(values, sensitivity=0, voxels=None):
+def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
     max_val = math.ceil(max(values))
     resized = 1
     voxel_weights = []
+    calculated_centroid = centroid(values)
+    '''plt.plot(np.linspace(0, len(values), len(values)), values)
+    plt.title("Centroid of Slope Graph")
+    plt.axvline(x=calculated_centroid, color='k')
+    plt.show()'''
     if voxels is not None:
         #This will be for a weighting to determine the percentage of structures thresholded at a specific high threshold
-        maximum_voxels = max(voxels)
-        for voxel in voxels[:-1]:
+        voxel_array = (np.array(voxels, dtype="int64")**power).tolist()
+        maximum_voxels = max(voxel_array)
+        for voxel in voxel_array[:-1]:
             voxel_weights.append(voxel/maximum_voxels)
         print(voxel_weights)
     if max_val == 1:
@@ -1037,37 +1043,54 @@ def rescale_gaussian(values, sensitivity=0, voxels=None):
     rescaled_values = []
     means = []
     intensity_scaled = []
+    intensity_weights = []
+    rescaled_x = []
     for dv in range(len(values)):
         vald = values[dv] / resized
         rescaled_values.append(dens[int(vald)])
         intensity_scaled.append(vald * dens[int(vald)])
+        intensity_weights.append(dens[int(vald)])
+        rescaled_x.append(dv * dens[int(vald)])
     inner_knee = KneeLocator(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, S=0.1, curve="convex", direction="decreasing")
     '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
     plt.show()'''
     print("Inner Knee:", inner_knee.all_knees)
     knee = inner_knee.knee
     print("Rescaled at knee", rescaled_values[int(knee)])
-    '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
-    plt.axvline(x=knee, color='g')
-    plt.show()'''
     rescaled_values = rescaled_values[int(knee):]
     values = values[int(knee):]
+    '''rescaled_centroid1 = centroid(rescaled_values)
+    rescaled_centroid2 = centroid(values, weights=rescaled_values)
+    print("Rescaled Centroids:", rescaled_centroid1, rescaled_centroid2)
+    plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, color='r')
+    plt.title("Rescaled Graph with Centroid")
+    plt.axvline(x=rescaled_centroid1, color='k')
+    plt.axvline(x=rescaled_centroid2, color='g')
+    plt.show()'''
     intensity_scaled = intensity_scaled[int(knee):]
+    intensity_weights = intensity_weights[int(knee):]
     auc_value = metrics.auc(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled)
     print("Auc Value", auc_value)
     max_intens = max(intensity_scaled)
-    intensity_weights = []
+    '''intensity_weights = []
     intensity_num = 0
     intensity_denom = 0
     for iw in range(len(intensity_scaled)):
         intensity_weights.append(intensity_scaled[iw]/max_intens)
         intensity_num += (intensity_scaled[iw]/max_intens)*iw
         intensity_denom += (intensity_scaled[iw]/max_intens)
-    intensity_scaled_centroid = intensity_num/intensity_denom
+    intensity_scaled_centroid = intensity_num/intensity_denom'''
     rounded_values = []
     for t in intensity_scaled:
         rounded_values.append(t)
     print("Proper rescaled value range", set(rounded_values), len(list(set(rounded_values))), len(rounded_values))
+    print(values, "\n", "intensity_scaled", "\n", intensity_weights, "\n", resized)
+    intensity_centroid = sum(intensity_scaled)/sum(intensity_weights)
+    rounded_centroid = centroid(rounded_values)
+    '''plt.plot(np.linspace(0, len(rounded_values), len(rounded_values)), rounded_values, color='r')
+    plt.title("Centroid of Rounded Values")
+    plt.axvline(x=rounded_centroid, color='k')
+    plt.show()'''
     dft = 0
     denom = 0
     for c in range(len(values)):
@@ -1077,8 +1100,10 @@ def rescale_gaussian(values, sensitivity=0, voxels=None):
             vox_weight = 1
         dft += c * dens[int(values[c])] * vox_weight
         denom += dens[int(values[c])]
-    print("Centroid at", dft/denom)
+    print("Centroid at", dft/denom + int(knee))
     window_weighted = []
+    window_positions = []
+    y_max = max(rescaled_values)
     for d in range(len(values), 0, -1):
         sum_scaled = 0
         weights = 0
@@ -1086,25 +1111,31 @@ def rescale_gaussian(values, sensitivity=0, voxels=None):
         for v in range(0, d):
             val = values[v]/resized
             weighted_val = v * dens[int(val)]
+            weight = dens[int(val)]
             if voxels is not None:
                 weighted_val *= voxel_weights[v]
+                weight *= voxel_weights[v]
             sum_scaled += weighted_val
-            weights += dens[int(val)]
+            weights += weight
             flipped += (len(values) - v) * dens[int(val)]
         new_mean = (sum_scaled/d)
         #new_mean = new_mean*(d/len(values))
         window_weighted.append(sum_scaled/weights)
         weighted_mean = sum_scaled/weights
+        #print("Compared:", weighted_mean, d, weights, new_mean)
         range_of_means1 += new_mean
         means.append(new_mean)
         range_weights += (d + 1)/len(values)
         range_of_means2 += weighted_mean
         #flipped_mean = (len(values) - flipped/len(values))
-        '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Rescaled", color='r')
-        plt.axvline(x=d, color='k')
-        plt.axvline(x=weighted_val/weights, color='c')
-        plt.show()'''
-    window_centroid = sum(window_weighted)/len(window_weighted)
+        '''if int(len(values)*0.25) == d or int(len(values)*0.50) == d or int(len(values)*0.75) == d or int(len(values)) == d:
+            window_positions.append(d)
+            plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Rescaled", color='r')
+            plt.axvline(x=d, ymin=0, ymax=y_max, color='b')
+            plt.axvline(x=weighted_mean+int(knee), color='c')
+            plt.show()'''
+    print("Window Means:", sum(window_weighted), range_of_means1)
+    window_centroid = sum(window_weighted)/len(window_weighted) + int(knee)
     print("Window Centroid", window_centroid)
     other_m = sum(means)/len(means)
     #print("Other M", other_m)
@@ -1170,8 +1201,12 @@ def evaluate_cumulative_hys():
     f = open(input_path + histogram_data)
     data = json.load(f)
     f.close()
+    files_number = len(files)
+    file_counter = 0
     for k, v in data.items():
+        file_counter += 1
         img_path = files[k]
+        print("Sample:", k)
         manual_params = manual_Hysteresis[k]
         richard_high = manual_params[0][1]*255
         rensu_high = manual_params[1][1]*255
@@ -1184,14 +1219,17 @@ def evaluate_cumulative_hys():
         log_voxels = np.where(voxels != 0, np.log2(voxels), 0)
         slopes, slope_points = get_slope(intens, voxels)
         slopes2, slope_points2 = get_slope(intens, log_voxels)
-        print("Window Size of", 8)
-        mving_slopes = rolling_average(slopes, 8)
+        window_size = 8
+        print("Window Size of", window_size)
+        mving_slopes = rolling_average(slopes, window_size)
         rolling_centroid = centroid(mving_slopes, slope_points)
         knee_finder = KneeLocator(slope_points, mving_slopes)
         print("Knees", knee_finder.all_knees)
         mving_slopes_intersect, mean_inters = cum_av_intersections(slope_points, slopes, mving_slopes)
-        mving_slopes2 = rolling_average(slopes2, 8)
-        tunable_method(mving_slopes, mving_slopes2)
+        mving_slopes2 = rolling_average(slopes2, window_size)
+        '''draw_lines(10, mving_slopes2, slope_points2)
+        draw_lines_density(20, mving_slopes2, slope_points2)'''
+        #tunable_method(mving_slopes, mving_slopes2)
         rolling_centroid2 = centroid(mving_slopes2, slope_points2)
         mving_slopes_intersect2, mean_inters2 = cum_av_intersections(slope_points2, slopes2, mving_slopes2)
         print("Slope Mean", k)
@@ -1200,49 +1238,186 @@ def evaluate_cumulative_hys():
         square_voxels = []
         for sv in voxels:
             square_voxels.append(sv*sv)
-        mean1, mean2 = rescale_gaussian(mving_slopes, 0, square_voxels)
-        mean1 = mean1 + intens[0]
-        print("Sample:", k)
-        to_mip(img_path, intens[0], mean1, manual_params, k)
-        print("Mean of", mean1)
-        '''locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
-        locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
-        print(locator.all_knees)
-        print(locatorlog.all_knees)'''
-        '''fig, (ax1, ax3, ax4) = plt.subplots(3, layout='constrained')
-        fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
+        auto_low = []
+        auto_high = []
+        set_of_means = []
+        for p in [0, 1, 2]:
+            mean1, mean2 = rescale_gaussian(mving_slopes, 0, voxels, power=p)
+            print("Compared Means:", mean1, mean2)
+            mean1 = mean1 + intens[0]
+            mean2 = mean2 + intens[0]
+            set_of_means.append(mean1)
+            auto_low.append(intens[0])
+            auto_high.append(mean1)
+            print("Sample:", k)
+            #to_mip(img_path, intens[0], mean1, manual_params, k)
+            print("Mean of", mean1)
+            locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
+            locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
+            print(locator.all_knees)
+            print(locatorlog.all_knees)
+            fig, (ax1, ax3) = plt.subplots(2, layout='constrained')
+            #fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, layout='constrained')
+            fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k + " with voxel power " + str(p))
+            plt.xlabel("Intensity Value")
+            #plt.ylabel("Threshold Voxels")
+            ax1.set_title("Voxels")
+            ax1.axvline(x=richard_high, color='r', label="Richard Manual")
+            ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
+            #ax1.axvline(x=voxel_centroid, color='m')
+            ax1.plot(intens, voxels)
+            ax1.axvline(x=mean1, color='k')
+            ax1.axvline(x=mean2, color='g')
+            '''ax2.set_title("Log of Voxels")
+            ax2.axvline(x=richard_high, color='r')
+            ax2.axvline(x=rensu_high, color='b')
+            ax2.plot(intens, log_voxels)'''
+            ax3.set_title("Slope Graph")
+            ax3.plot(slope_points, slopes)
+            ax3.plot(slope_points, mving_slopes)
+            ax3.axvline(x=richard_high, color='r')
+            ax3.axvline(x=rensu_high, color='b')
+            #ax3.axvline(x=rolling_centroid, color='m')
+            ax3.axvline(x=mean1, color='k')
+            ax3.axvline(x=mean2, color='g')
+            '''ax4.set_title("Voxel Log Slope Graph")
+            ax4.plot(slope_points2, slopes2)
+            ax4.plot(slope_points2, mving_slopes2)
+            ax4.axvline(x=richard_high, color='r')
+            ax4.axvline(x=rensu_high, color='b')'''
+            #ax4.axvline(x=rolling_centroid2, color='m')
+            '''for m in mving_slopes_intersect2:
+                ax4.axvline(x=m, color='g')'''
+            '''ax4.axvline(x=mean1, color='k')'''
+            fig.legend()
+        plt.show()
+        fig2, (ax2, ax4) = plt.subplots(2, layout='constrained')
+        fig2.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
         plt.xlabel("Intensity Value")
-        #plt.ylabel("Threshold Voxels")
-        ax1.set_title("Voxels")
-        ax1.axvline(x=richard_high, color='r', label="Richard Manual")
-        ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
-        #ax1.axvline(x=voxel_centroid, color='m')
-        ax1.plot(intens, voxels)
-        ax1.axvline(x=mean1, color='k')'''
-        '''ax2.set_title("Log of Voxels")
-        ax2.axvline(x=richard_high, color='r')
-        ax2.axvline(x=rensu_high, color='b')
-        ax2.plot(intens, log_voxels)'''
-        '''ax3.set_title("Slope Graph")
-        ax3.plot(slope_points, slopes)
-        ax3.plot(slope_points, mving_slopes)
-        ax3.axvline(x=richard_high, color='r')
-        ax3.axvline(x=rensu_high, color='b')'''
-        #ax3.axvline(x=rolling_centroid, color='m')
-        '''for m in mving_slopes_intersect:
-            ax3.axvline(x=m, color='g')'''
-        '''ax3.axvline(x=mean1, color='k')
-        ax4.set_title("Voxel Log Slope Graph")
-        ax4.plot(slope_points2, slopes2)
-        ax4.plot(slope_points2, mving_slopes2)
-        ax4.axvline(x=richard_high, color='r')
-        ax4.axvline(x=rensu_high, color='b')'''
-        #ax4.axvline(x=rolling_centroid2, color='m')
-        '''for m in mving_slopes_intersect2:
-            ax4.axvline(x=m, color='g')'''
-        '''ax4.axvline(x=mean1, color='k')
-        fig.legend()
-        plt.show()'''
+        ax2.set_title("Voxels")
+        ax2.axvline(x=set_of_means[0], color='r', label="No Voxel Weighting")
+        ax2.axvline(x=set_of_means[1], color='g', label="Voxel Weighting")
+        ax2.axvline(x=set_of_means[2], color='b', label="Squared Voxel Weighting")
+        ax2.plot(intens, voxels, color='k')
+        ax4.set_title("Slope Graph")
+        ax4.plot(slope_points, slopes, color='k')
+        ax4.plot(slope_points, mving_slopes, color='m')
+        ax4.axvline(x=set_of_means[0], color='r')
+        ax4.axvline(x=set_of_means[1], color='g')
+        ax4.axvline(x=set_of_means[2], color='b')
+        fig2.legend()
+        plt.show()
+    print(str(file_counter) + " of " + str(files_number) + " files process")
+
+def draw_lines(window_size, waveform, waveform_x):
+    list_of_lines = []
+    print("Drawing Lines")
+    fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
+    half_window = int(window_size / 2)
+    for i in range(half_window, len(waveform) - half_window, 1):
+        start_x = waveform_x[i - half_window]
+        end_x = waveform_x[i + half_window]
+        start_y = waveform[i - half_window]
+        end_y = waveform[i + half_window]
+        list_of_lines.append([[start_x,  end_x], [start_y, end_y]])
+    print("List of Lines:", list_of_lines)
+    intersection_points = line_iteration(list_of_lines)
+    print(intersection_points)
+    ax1.plot(waveform_x, waveform, color='k')
+    for n in list_of_lines:
+        #print(n[0], n[1])
+        ax1.plot(n[0], n[1], color='g', linewidth=1)
+    ax1.scatter(intersection_points[0], intersection_points[1], s=4, c='r')
+    ax2.plot(waveform_x, waveform, color='k')
+    ax2.scatter(intersection_points[0], intersection_points[1], s=6, c='r')
+    plt.show()
+
+def draw_lines_density(window_size, waveform, waveform_x):
+    print("Drawing Lines")
+    fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
+    intersection_points = [[], []]
+    all_lines = []
+    for w in range(2, window_size+1):
+        list_of_lines = []
+        half_window = int(w/2)
+        max_values = []
+        for i in range(half_window, len(waveform)-half_window, 1):
+            upper = (i + half_window)
+            lower = (i-half_window)
+            max_val = max(waveform[(i-half_window):(i + half_window)])
+            if len(max_values) == 0:
+                max_values.append(max_val)
+            else:
+                if max_val > max(max_values):
+                    max_values.append(max_val)
+            start_x = waveform_x[i-half_window]
+            end_x = waveform_x[i + half_window]
+            start_y = waveform[i-half_window]
+            end_y = waveform[i + half_window]
+            list_of_lines.append([[start_x,  end_x], [start_y, end_y]])
+        #print("List of Lines:", list_of_lines)
+        intersection_point = line_iteration(list_of_lines)
+        print("Number of intersections", len(intersection_point[0]))
+        intersection_points[0].extend(intersection_point[0])
+        intersection_points[1].extend(intersection_point[1])
+        all_lines.extend(list_of_lines)
+    #print("Intersection Points:" + "\n" + str(intersection_points[0]) + "\n" + str(intersection_points[1]))
+    print("Total Number of Intersections", len(intersection_points[0]))
+    for n in all_lines:
+        # print(n[0], n[1])
+        ax1.plot(n[0], n[1], color='g', linewidth=1)
+    ax1.plot(waveform_x, waveform, color='k')
+    ax1.scatter(intersection_points[0], intersection_points[1], s=4, c='r')
+    ax2.plot(waveform_x, waveform, color='k')
+    ax2.scatter(intersection_points[0], intersection_points[1], s=6, c='r')
+    plt.show()
+
+def line_iteration(lines):
+    intersection_points = [[], []]
+    for n in range(1, len(lines)):
+        current_coords = lines[n]
+        for m in range(0, n):
+            prior_coords = lines[m]
+            if prior_coords[0][1] > current_coords[0][0]:
+                #print("Lines", prior_coords, current_coords)
+                intersection_found = line_intersection_check(current_coords, prior_coords)
+                if intersection_found:
+                    intersection = line_intersect(current_coords, prior_coords)
+                    if intersection is not None:
+                        intersection_points[0].append(intersection[0])
+                        intersection_points[1].append(intersection[1])
+    return intersection_points
+
+def line_intersection_check(coord1, coord2):
+    condition1 = (coord1[1][0] < coord2[1][0] and coord1[1][1] > coord2[1][1])
+    condition2 = (coord1[1][0] > coord2[1][0] and coord1[1][1] < coord2[1][1])
+    if condition1 or condition2:
+        return True
+    else:
+        return False
+
+def line_intersect(coord1, coord2):
+    #coord1 is current, coord2 is prior
+    m1 = (coord1[1][1]-coord1[1][0])/(coord1[0][1]-coord1[0][0])
+    c1 = coord1[1][0]-m1*coord1[0][0] if m1 < 0 else coord1[1][1]-m1*coord1[0][1] # negative slope needs a y offset
+    m2 = (coord2[1][1] - coord2[1][0]) / (coord2[0][1] - coord2[0][0])
+    c2 = coord2[1][0]-m2*coord2[0][0] if m2 < 0 else coord2[1][1]-m2*coord2[0][1]
+    if m1*m2 < 0:
+        x_p = (c1 - c2)/(m2 - m1)
+        y_p = (m2*x_p + c2)
+        #bound_conditions1 = coord1[0][0] <= x_p <= coord2[0][1]
+        bound_conditions2 = (coord1[1][0] <= y_p <= coord1[1][1]) or (coord1[1][1] <= y_p <= coord1[1][0])
+        bound_conditions4 = (coord2[1][0] <= y_p <= coord2[1][1]) or (coord2[1][1] <= y_p <= coord2[1][0])
+        print("Boundaries")
+        print( bound_conditions2, bound_conditions4)
+        print([x_p, y_p], coord1, coord2)
+        if  bound_conditions2 and bound_conditions4:
+            return [x_p, y_p]
+        else:
+            return None
+        #return [x_p, y_p]
+    else:
+        return None
 
 def rolling_average(counts, window_size=10, rescale=False):
     adjusted = False
@@ -1413,6 +1588,7 @@ def other_threshold_results(img):
         print(e)
     return result
 
+
 def testing_knee(img, interp_style, online, sensitivity=1, filter_value=None, log_hist=False):
     #print("Histogram for knee")
     counts, centers = histogram(img, nbins=256)
@@ -1529,7 +1705,7 @@ def tunable_method(slope, log_slope):
     cluster_seperators = find_cluster(maxes, len(slope))
     if len(cluster_seperators) > 1:
         refine_clusters(cluster_seperators, slope, log_slope)
-    '''fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
+    fig, (ax1, ax2) = plt.subplots(2, layout='constrained')
     ax1.plot(np.linspace(0, len(slope), len(slope)), slope, color='r')
     ax1.axvline(x=av_max, color='g')
     for t in maxes:
@@ -1539,7 +1715,7 @@ def tunable_method(slope, log_slope):
         ax1.axvline(x=g, color='k')
         ax2.axvline(x=g, color='k')
     ax2.plot(np.linspace(0, len(log_slope), len(log_slope)), log_slope, color='r')
-    plt.show()'''
+    plt.show()
 
 def find_cluster(max, range_of_values):
     max.reverse()
@@ -1660,24 +1836,67 @@ def to_mip(image_path, low_thresh, high_thresh, manual_params, name):
     plt.imsave(save_path + save_name + "Orig.png", mip_orig)
     #plt.title("Original")
     zero_array = np.zeros_like(mip_orig)
-    #rgb_img = np.stack((mip_orig, masked_image, zero_array), axis=-1)
-    #io.imshow(rgb_img)
-    #plt.subplot(2, 2, 2)
-    #plt.imshow(masked_image)
+    rgb_img = np.stack((mip_orig, masked_image, zero_array), axis=-1)
+    io.imshow(rgb_img)
+    plt.subplot(2, 2, 2)
+    plt.imshow(masked_image)
     plt.imsave(save_path + save_name + "Auto.png", masked_image)
-    #plt.title("Auto")
-    #plt.subplot(2, 2, 3)
-    #plt.imshow(rensu_mip)
+    plt.title("Auto")
+    plt.subplot(2, 2, 3)
+    plt.imshow(rensu_mip)
     plt.imsave(save_path + save_name + "Rensu.png", rensu_mip)
-    #plt.title("Rensu")
-    #plt.subplot(2, 2, 4)
-    #plt.imshow(richard_mip)
+    plt.title("Rensu")
+    plt.subplot(2, 2, 4)
+    plt.imshow(richard_mip)
     plt.imsave(save_path + save_name + "Rich.png", richard_mip)
-    #plt.title("Richard")
-    #plt.show()
+    plt.title("Richard")
+    plt.show()
     rgb_img = np.stack((rensu_mip, richard_mip, masked_image), axis=-1).astype('uint8')
     plt.imsave(save_path + save_name + "RGB.png", rgb_img)
 
+def voxel_weight_mip(image_path, low_threshes, high_threshes, name):
+    save_name = name.split(".")[0]
+    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\VoxelWeightMIP\\"
+    img = io.imread(image_path)
+    #io.imshow(img[0])
+    masked_image = []
+    for l in range(len(low_threshes)):
+        thresholded_image = apply_hysteresis_threshold(img, low_threshes[l], high_threshes[l]).astype('int')
+        masked_image.append(np.amax(img*thresholded_image, axis=0))
+    mip_orig = np.amax(img, axis=0)
+    #plt.subplot(2, 2, 1)
+    #plt.imshow(mip_orig)
+    #plt.imsave(save_path + save_name + "Orig.png", mip_orig)
+    #plt.title("Original")
+    zero_array = np.zeros_like(mip_orig)
+    if len(masked_image) < 3:
+        mask_count = len(masked_image)
+        for t in range(3 - mask_count):
+            masked_image.append(zero_array)
+    elif len(masked_image) > 3:
+        masked_image = masked_image[:3]
+    rgb_img = np.stack(masked_image, axis=-1).astype('uint8')
+    plt.imsave(save_path + save_name + "Power.png", rgb_img)
+
+def voxel_weight_stack(image_path, low_threshes, high_threshes, name):
+    save_name = name.split(".")[0]
+    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\VoxelWeightStack\\"
+    img = io.imread(image_path)
+    #io.imshow(img[0])
+    masked_image = []
+    for l in range(len(low_threshes)):
+        thresholded_image = apply_hysteresis_threshold(img, low_threshes[l], high_threshes[l]).astype('int')
+        masked_image.append(img*thresholded_image)
+
+    zero_array = np.zeros_like(img)
+    if len(masked_image) < 3:
+        mask_count = len(masked_image)
+        for t in range(3 - mask_count):
+            masked_image.append(zero_array)
+    elif len(masked_image) > 3:
+        masked_image = masked_image[:3]
+    rgb_img = np.stack(masked_image, axis=-1).astype('uint8')
+    tifffile.imwrite(save_path + save_name + "Power.tif", rgb_img, imagej=True)
 
 
 if __name__ == "__main__":
