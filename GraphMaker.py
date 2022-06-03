@@ -996,6 +996,38 @@ def gaussian_weights(values, sensitivity=1):
 
     return rescaled_values
 
+def inverted_weight(y_values):
+    max_y = max(y_values) + 1
+    reweighted = []
+    for y in y_values:
+        reweighted.append((max_y-y)/max_y)
+    return reweighted
+
+def generate_sigmoid(midpoint, k=10):
+    print("Calculating Sigmoid")
+    print(math.log(1, math.e)/k, 1/2)
+    k = k/(midpoint*2)
+    range_of_sig = []
+    #print(midpoint)
+    progress = 0
+    norm_y = []
+    '''for y_n in range(int(midpoint*2)):
+        norm_y.append((y_n/int(midpoint*2)*10))'''
+    try:
+        for y in range(int(midpoint*2)+1):
+            progress = y
+            #print(y-0.5)
+            sig = 1 / (1 + math.pow(math.e, k*(y-midpoint)))
+            #print(sig)
+            range_of_sig.append(sig)
+    except Exception as e:
+        print("Error: ", e)
+        print("Progress is: " + str((progress/int(midpoint*2))*100) + "%")
+    print(range_of_sig[0], range_of_sig[-1])
+    print("Number of sigmoid values:", len(range_of_sig), midpoint*2)
+    plt.plot(np.linspace(0, len(range_of_sig), len(range_of_sig)), range_of_sig, label="Logistic")
+    return range_of_sig
+
 def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
     max_val = math.ceil(max(values))
     resized = 1
@@ -1021,6 +1053,7 @@ def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
         np_values = np.array(values)
         max_val = math.ceil((np_values/smallest_gap).max())
         resized = smallest_gap
+    logist = generate_sigmoid(max_val/2, 8)
     width = max_val/0.997
     sigma = width/(3 + sensitivity)
     #print("Sigma", sigma)
@@ -1035,12 +1068,16 @@ def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
     dens = dens/np.max(dens)
     dens_index = np.argmax(dens)
     dens = dens[dens_index:]
-    #plt.plot(bins, dens)
+    plt.plot(bins, dens, label="Gaussian")
+    invert = inverted_weight(values)
+    plt.plot(np.linspace(0, int(max(values)), int(max(values))), [(max(values) - inv)/max(values) for inv in range(int(max(values)))], label="Inverted")
+    plt.legend()
     print("Min for weighting", min(values), min(values)/resized)
     range_of_means1 = 0
     range_of_means2 = 0
     range_weights = 0
     rescaled_values = []
+    logist_rescaled = []
     means = []
     intensity_scaled = []
     intensity_weights = []
@@ -1048,12 +1085,23 @@ def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
     for dv in range(len(values)):
         vald = values[dv] / resized
         rescaled_values.append(dens[int(vald)])
+        logist_rescaled.append(logist[int(vald)])
         intensity_scaled.append(vald * dens[int(vald)])
         intensity_weights.append(dens[int(vald)])
         rescaled_x.append(dv * dens[int(vald)])
     inner_knee = KneeLocator(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, S=0.1, curve="convex", direction="decreasing")
-    '''plt.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values)
-    plt.show()'''
+    f = plt.figure()
+    ax = f.add_subplot(111)
+    ax.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Gaussian Dist")
+    ax.plot(np.linspace(0, len(logist_rescaled), len(logist_rescaled)), logist_rescaled, label="Logistic Dist")
+    ax.plot(np.linspace(0, len(invert), len(invert)), invert, label="Inverted Dist")
+    f.suptitle("Comparing Distributions")
+    f.legend()
+    plt.show()
+    ax.clear()
+    f.clear()
+    plt.close()
+    plt.close(f)
     print("Inner Knee:", inner_knee.all_knees)
     knee = inner_knee.knee
     print("Rescaled at knee", rescaled_values[int(knee)])
@@ -1159,6 +1207,189 @@ def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
     #print("Both final weights", range_of_means1/range_weights, range_of_means2/range_weights, range_of_means1/len(values), range_of_means2/len(values))
     return (range_of_means1/len(rescaled_values)) + int(knee), (range_of_means2/len(rescaled_values)) + int(knee)
 
+def dist_rescale_testing(values, sensitivity=0, voxels=None, power=1, steepness=8, name=None):
+    max_val = math.ceil(max(values))
+    resized = 1
+    voxel_weights = []
+    if voxels is not None:
+        #This will be for a weighting to determine the percentage of structures thresholded at a specific high threshold
+        voxel_array = (np.array(voxels, dtype="int64")**power).tolist()
+        maximum_voxels = max(voxel_array)
+        for voxel in voxel_array[:-1]:
+            voxel_weights.append(voxel/maximum_voxels)
+        print(voxel_weights)
+    if max_val == 1:
+        smallest_gap = 1
+        for v in range(1, len(values)):
+            gap = abs(values[v-1] - values[v])
+            if gap < smallest_gap and gap != 0:
+                smallest_gap = gap
+        np_values = np.array(values)
+        max_val = math.ceil((np_values/smallest_gap).max())
+        resized = smallest_gap
+    logist = generate_sigmoid(max_val/2, steepness)
+    width = max_val/0.997
+    sigma = width/(3 + sensitivity)
+    #print("Sigma", sigma)
+    mu = 0
+    distr = np.random.normal(mu, sigma, 2*int(max_val))
+    if max_val > 1:
+        x_axis = np.linspace(0, int(max_val)+1, int(max_val)+1)
+    else:
+        x_axis = np.linspace(0, 10, 10)
+    bins = x_axis
+    dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu)**2 / (2 * sigma**2))
+    dens = dens/np.max(dens)
+    dens_index = np.argmax(dens)
+    dens = dens[dens_index:]
+    #plt.plot(bins, dens, label="Gaussian")
+    invert = inverted_weight(values)
+    '''plt.plot(np.linspace(0, int(max(values)), int(max(values))), [(max(values) - inv)/max(values) for inv in range(int(max(values)))], label="Inverted")
+    plt.legend()'''
+    if name is not None:
+        plt.savefig("C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\DistributionThresholds\\Graphs\\Distribution\\" + name.split('.')[0] + "Steep"
+                    + str(steepness) + ".png")
+        plt.clf()
+        plt.close()
+    print("Min for weighting", min(values), min(values)/resized)
+
+    rescaled_values = []
+    logist_rescaled = []
+    intensity_scaled = []
+    intensity_weights = []
+    rescaled_x = []
+    for dv in range(len(values)):
+        vald = values[dv] / resized
+        rescaled_values.append(dens[int(vald)])
+        logist_rescaled.append(logist[int(vald)])
+        intensity_scaled.append(vald * dens[int(vald)])
+        intensity_weights.append(dens[int(vald)])
+        rescaled_x.append(dv * dens[int(vald)])
+    inner_knee = KneeLocator(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, S=0.1, curve="convex", direction="decreasing")
+    '''f = plt.figure()
+    ax = f.add_subplot(111)
+    ax.plot(np.linspace(0, len(rescaled_values), len(rescaled_values)), rescaled_values, label="Gaussian Dist")
+    ax.plot(np.linspace(0, len(logist_rescaled), len(logist_rescaled)), logist_rescaled, label="Logistic Dist")
+    ax.plot(np.linspace(0, len(invert), len(invert)), invert, label="Inverted Dist")
+    f.suptitle("Comparing Distributions")
+    f.legend()
+    if name is not None:
+        plt.savefig("C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\DistributionThresholds\\Graphs\\Reweighted\\" + name.split('.')[0] + "RWSteep"
+                    + str(steepness) + ".png")
+        plt.clf()
+        plt.close()
+    else:
+        plt.show()
+    ax.clear()
+    f.clear()
+    plt.close()
+    plt.close(f)'''
+    invert = [(max(values) - inv) / max(values) for inv in range(int(max(values)) + 1)]
+    knee = inner_knee.knee
+    rescaled_values = rescaled_values[int(knee):]
+    values = values[int(knee):]
+    intensity_scaled = intensity_scaled[int(knee):]
+    intensity_weights = intensity_weights[int(knee):]
+    auc_value = metrics.auc(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled)
+    print("Auc Value", auc_value)
+    rounded_values = []
+    for t in intensity_scaled:
+        rounded_values.append(t)
+    dft = 0
+    denom = 0
+    for c in range(len(values)):
+        if voxels is not None:
+            vox_weight = voxel_weights[c]
+        else:
+            vox_weight = 1
+        dft += c * dens[int(values[c])] * vox_weight
+        denom += dens[int(values[c])]
+    print("Centroid at", dft/denom + int(knee))
+    window_weighted1 = []
+    window_weighted2 = []
+    window_weighted3 = []
+    range_of_means11 = 0
+    range_of_means21 = 0
+    range_of_means12 = 0
+    range_of_means22 = 0
+    range_of_means13 = 0
+    range_of_means23 = 0
+    means1 = []
+    means2 = []
+    means3 = []
+    range_weights1 = 0
+    range_weights2 = 0
+    range_weights3 = 0
+    window_positions = []
+    y_max = max(rescaled_values)
+    dist_weights = [dens, logist, invert]
+    for d in range(len(values), 0, -1):
+        sum_scaled1 = 0
+        weights1 = 0
+        flipped1 = 0
+        sum_scaled2 = 0
+        weights2 = 0
+        flipped2 = 0
+        sum_scaled3 = 0
+        weights3 = 0
+        flipped3 = 0
+        for v in range(0, d):
+            val = values[v]/resized
+            weighted_val1 = v * dist_weights[0][int(val)]
+            weight1 = dist_weights[0][int(val)]
+            weighted_val2 = v * dist_weights[1][int(val)]
+            weight2 = dist_weights[1][int(val)]
+            weighted_val3 = v * dist_weights[2][int(val)]
+            weight3 = dist_weights[2][int(val)]
+            if voxels is not None:
+                weighted_val1 *= voxel_weights[v]
+                weight1 *= voxel_weights[v]
+                weighted_val2 *= voxel_weights[v]
+                weight2 *= voxel_weights[v]
+                weighted_val3 *= voxel_weights[v]
+                weight3 *= voxel_weights[v]
+            sum_scaled1 += weighted_val1
+            weights1 += weight1
+            flipped1 += (len(values) - v) * dist_weights[0][int(val)]
+            sum_scaled2 += weighted_val2
+            weights2 += weight2
+            flipped2 += (len(values) - v) * dist_weights[1][int(val)]
+            sum_scaled3 += weighted_val3
+            weights3 += weight3
+            flipped3 += (len(values) - v) * dist_weights[2][int(val)]
+        new_mean1 = (sum_scaled1/d)
+        window_weighted1.append(sum_scaled1/weights1)
+        weighted_mean1 = sum_scaled1/weights1
+        range_of_means11 += new_mean1
+        means1.append(new_mean1)
+        range_weights1 += (d + 1)/len(values)
+        range_of_means21 += weighted_mean1
+        new_mean2 = (sum_scaled2/d)
+        window_weighted2.append(sum_scaled2/weights2)
+        weighted_mean2 = sum_scaled2/weights2
+        range_of_means12 += new_mean2
+        means2.append(new_mean2)
+        range_weights2 += (d + 1)/len(values)
+        range_of_means22 += weighted_mean2
+        new_mean3 = (sum_scaled3/d)
+        window_weighted3.append(sum_scaled3/weights3)
+        weighted_mean3 = sum_scaled3/weights3
+        range_of_means13 += new_mean3
+        means3.append(new_mean3)
+        range_weights3 += (d + 1)/len(values)
+        range_of_means23 += weighted_mean3
+    '''window_centroid = sum(window_weighted)/len(window_weighted) + int(knee)
+    print("Window Centroid", window_centroid)'''
+    #other_m = sum(means)/len(means)
+    #print("Other M", other_m)
+    #print("Current Mean", range_of_means1/len(values))
+    print("Length check", len(intensity_scaled), len(values))
+    range_of_means1 = [(range_of_means11/len(rescaled_values)) + int(knee), (range_of_means12/len(rescaled_values)) + int(knee),
+                       (range_of_means13/len(rescaled_values)) + int(knee)]
+    range_of_means2 = [(range_of_means21/len(rescaled_values)) + int(knee), (range_of_means22/len(rescaled_values)) + int(knee),
+                       (range_of_means23/len(rescaled_values)) + int(knee)]
+    return range_of_means1, range_of_means2
+
 def centroid_of_graph(values):
     x_values = np.linspace(0, len(values), len(values))
     area = 0
@@ -1238,75 +1469,102 @@ def evaluate_cumulative_hys():
         square_voxels = []
         for sv in voxels:
             square_voxels.append(sv*sv)
-        auto_low = []
-        auto_high = []
         set_of_means = []
-        for p in [0, 1, 2]:
-            mean1, mean2 = rescale_gaussian(mving_slopes, 0, voxels, power=p)
-            print("Compared Means:", mean1, mean2)
-            mean1 = mean1 + intens[0]
-            mean2 = mean2 + intens[0]
-            set_of_means.append(mean1)
-            auto_low.append(intens[0])
-            auto_high.append(mean1)
-            print("Sample:", k)
-            #to_mip(img_path, intens[0], mean1, manual_params, k)
-            print("Mean of", mean1)
-            locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
-            locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
-            print(locator.all_knees)
-            print(locatorlog.all_knees)
-            fig, (ax1, ax3) = plt.subplots(2, layout='constrained')
-            #fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, layout='constrained')
-            fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k + " with voxel power " + str(p))
+        steepness_it = []
+        for s in [6, 8, 10, 12, 14]:
+            auto_low = []
+            auto_high = []
+            print("Steepness:", s)
+            for p in [1]:
+                #mean1, mean2 = rescale_gaussian(mving_slopes, 0, voxels, power=p)
+                mean1, mean2 = dist_rescale_testing(mving_slopes, 0, voxels, power=p, steepness=s, name=k)
+                print("Compared Means:", mean1, mean2)
+                mean1[0] = mean1[0] + intens[0]
+                mean2[0] = mean2[0] + intens[0]
+                mean1[1] = mean1[1] + intens[0]
+                mean2[1] = mean2[1] + intens[0]
+                mean1[2] = mean1[2] + intens[0]
+                mean2[2] = mean2[2] + intens[0]
+                set_of_means = mean1
+                '''auto_low.append(intens[0])
+                auto_high.append(mean1)'''
+                auto_low = [intens[0], intens[0], intens[0]]
+                auto_high = mean1
+                print("Sample:", k)
+                #to_mip(img_path, intens[0], mean1, manual_params, k)
+                print("Mean of", mean1)
+                locator = KneeLocator(x=intens, y=voxels, curve="convex", direction="decreasing")
+                locatorlog = KneeLocator(x=intens, y=log_voxels, curve="convex", direction="decreasing")
+                print(locator.all_knees)
+                print(locatorlog.all_knees)
+                '''plt.close("all")
+                fig, (ax1, ax3) = plt.subplots(2, layout='constrained')
+                #fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, layout='constrained')
+                fig.suptitle("Threshold Voxels per High Threshold Intensity for " + k + " with voxel power " + str(p))
+                plt.xlabel("Intensity Value")
+                #plt.ylabel("Threshold Voxels")
+                ax1.set_title("Voxels")
+                ax1.axvline(x=richard_high, color='r', label="Richard Manual")
+                ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
+                #ax1.axvline(x=voxel_centroid, color='m')
+                ax1.plot(intens, voxels)
+                ax1.axvline(x=mean1, color='k')
+                ax1.axvline(x=mean2, color='g')'''
+                '''ax2.set_title("Log of Voxels")
+                ax2.axvline(x=richard_high, color='r')
+                ax2.axvline(x=rensu_high, color='b')
+                ax2.plot(intens, log_voxels)'''
+                '''ax3.set_title("Slope Graph")
+                ax3.plot(slope_points, slopes)
+                ax3.plot(slope_points, mving_slopes)
+                ax3.axvline(x=richard_high, color='r')
+                ax3.axvline(x=rensu_high, color='b')
+                #ax3.axvline(x=rolling_centroid, color='m')
+                ax3.axvline(x=mean1, color='k')
+                ax3.axvline(x=mean2, color='g')'''
+                '''ax4.set_title("Voxel Log Slope Graph")
+                ax4.plot(slope_points2, slopes2)
+                ax4.plot(slope_points2, mving_slopes2)
+                ax4.axvline(x=richard_high, color='r')
+                ax4.axvline(x=rensu_high, color='b')'''
+                #ax4.axvline(x=rolling_centroid2, color='m')
+                '''for m in mving_slopes_intersect2:
+                    ax4.axvline(x=m, color='g')'''
+                '''ax4.axvline(x=mean1, color='k')'''
+                '''fig.legend()
+                plt.show()'''
+            #plt.close("Comparing Distributions")
+            #plt.show()
+            plt.close("all")
+            print("Means", set_of_means)
+            fig2, (ax2, ax4) = plt.subplots(2, layout='constrained')
+            fig2.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
             plt.xlabel("Intensity Value")
-            #plt.ylabel("Threshold Voxels")
-            ax1.set_title("Voxels")
-            ax1.axvline(x=richard_high, color='r', label="Richard Manual")
-            ax1.axvline(x=rensu_high, color='b', label="Rensu Manual")
-            #ax1.axvline(x=voxel_centroid, color='m')
-            ax1.plot(intens, voxels)
-            ax1.axvline(x=mean1, color='k')
-            ax1.axvline(x=mean2, color='g')
-            '''ax2.set_title("Log of Voxels")
-            ax2.axvline(x=richard_high, color='r')
-            ax2.axvline(x=rensu_high, color='b')
-            ax2.plot(intens, log_voxels)'''
-            ax3.set_title("Slope Graph")
-            ax3.plot(slope_points, slopes)
-            ax3.plot(slope_points, mving_slopes)
-            ax3.axvline(x=richard_high, color='r')
-            ax3.axvline(x=rensu_high, color='b')
-            #ax3.axvline(x=rolling_centroid, color='m')
-            ax3.axvline(x=mean1, color='k')
-            ax3.axvline(x=mean2, color='g')
-            '''ax4.set_title("Voxel Log Slope Graph")
-            ax4.plot(slope_points2, slopes2)
-            ax4.plot(slope_points2, mving_slopes2)
-            ax4.axvline(x=richard_high, color='r')
-            ax4.axvline(x=rensu_high, color='b')'''
-            #ax4.axvline(x=rolling_centroid2, color='m')
-            '''for m in mving_slopes_intersect2:
-                ax4.axvline(x=m, color='g')'''
-            '''ax4.axvline(x=mean1, color='k')'''
-            fig.legend()
-        plt.show()
-        fig2, (ax2, ax4) = plt.subplots(2, layout='constrained')
-        fig2.suptitle("Threshold Voxels per High Threshold Intensity for " + k)
-        plt.xlabel("Intensity Value")
-        ax2.set_title("Voxels")
-        ax2.axvline(x=set_of_means[0], color='r', label="No Voxel Weighting")
-        ax2.axvline(x=set_of_means[1], color='g', label="Voxel Weighting")
-        ax2.axvline(x=set_of_means[2], color='b', label="Squared Voxel Weighting")
-        ax2.plot(intens, voxels, color='k')
-        ax4.set_title("Slope Graph")
-        ax4.plot(slope_points, slopes, color='k')
-        ax4.plot(slope_points, mving_slopes, color='m')
-        ax4.axvline(x=set_of_means[0], color='r')
-        ax4.axvline(x=set_of_means[1], color='g')
-        ax4.axvline(x=set_of_means[2], color='b')
-        fig2.legend()
-        plt.show()
+            ax2.set_title("Voxels")
+            '''ax2.axvline(x=set_of_means[0], color='r', label="No Voxel Weighting")
+            ax2.axvline(x=set_of_means[1], color='g', label="Voxel Weighting")
+            ax2.axvline(x=set_of_means[2], color='b', label="Squared Voxel Weighting")'''
+            ax2.axvline(x=set_of_means[0], color='r', label="Gaussian")
+            ax2.axvline(x=set_of_means[1], color='g', label="Logistic")
+            ax2.axvline(x=set_of_means[2], color='b', label="Inverted")
+            ax2.plot(intens, voxels, color='k')
+            ax4.set_title("Slope Graph")
+            ax4.plot(slope_points, slopes, color='k')
+            ax4.plot(slope_points, mving_slopes, color='m')
+            '''ax4.axvline(x=set_of_means[0], color='r')
+            ax4.axvline(x=set_of_means[1], color='g')
+            ax4.axvline(x=set_of_means[2], color='b')'''
+            ax4.axvline(x=set_of_means[0], color='r')
+            ax4.axvline(x=set_of_means[1], color='g')
+            ax4.axvline(x=set_of_means[2], color='b')
+            fig2.legend()
+            #plt.show()
+            plt.savefig("C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\HighThreshSelected\\" + k.split('.')[0] + "_" + str(s) + "_ThreshGraph.png")
+            plt.close("all")
+            #voxel_weight_mip(img_path, auto_low, auto_high, k, "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\DistributionThresholds\\", "Steepness"+str(s))
+            steepness_it.append(voxel_mip_nosave(img_path, auto_low, auto_high))
+        distrib_stack = np.stack(steepness_it, axis=0)
+        #tifffile.imwrite("C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\DistributionThresholds\\" + k.split('.')[0] + "Distribs.tif", distrib_stack, imagej=True)
     print(str(file_counter) + " of " + str(files_number) + " files process")
 
 def draw_lines(window_size, waveform, waveform_x):
@@ -1854,9 +2112,8 @@ def to_mip(image_path, low_thresh, high_thresh, manual_params, name):
     rgb_img = np.stack((rensu_mip, richard_mip, masked_image), axis=-1).astype('uint8')
     plt.imsave(save_path + save_name + "RGB.png", rgb_img)
 
-def voxel_weight_mip(image_path, low_threshes, high_threshes, name):
+def voxel_weight_mip(image_path, low_threshes, high_threshes, name, save_path="C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\VoxelWeightMIP\\", added_name="Power"):
     save_name = name.split(".")[0]
-    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\VoxelWeightMIP\\"
     img = io.imread(image_path)
     #io.imshow(img[0])
     masked_image = []
@@ -1876,7 +2133,29 @@ def voxel_weight_mip(image_path, low_threshes, high_threshes, name):
     elif len(masked_image) > 3:
         masked_image = masked_image[:3]
     rgb_img = np.stack(masked_image, axis=-1).astype('uint8')
-    plt.imsave(save_path + save_name + "Power.png", rgb_img)
+    plt.imsave(save_path + save_name + added_name + ".png", rgb_img)
+
+def voxel_mip_nosave(image_path, low_threshes, high_threshes):
+    img = io.imread(image_path)
+    #io.imshow(img[0])
+    masked_image = []
+    for l in range(len(low_threshes)):
+        thresholded_image = apply_hysteresis_threshold(img, low_threshes[l], high_threshes[l]).astype('int')
+        masked_image.append(np.amax(img*thresholded_image, axis=0))
+    mip_orig = np.amax(img, axis=0)
+    #plt.subplot(2, 2, 1)
+    #plt.imshow(mip_orig)
+    #plt.imsave(save_path + save_name + "Orig.png", mip_orig)
+    #plt.title("Original")
+    zero_array = np.zeros_like(mip_orig)
+    if len(masked_image) < 3:
+        mask_count = len(masked_image)
+        for t in range(3 - mask_count):
+            masked_image.append(zero_array)
+    elif len(masked_image) > 3:
+        masked_image = masked_image[:3]
+    rgb_img = np.stack(masked_image, axis=-1).astype('uint8')
+    return rgb_img
 
 def voxel_weight_stack(image_path, low_threshes, high_threshes, name):
     save_name = name.split(".")[0]
