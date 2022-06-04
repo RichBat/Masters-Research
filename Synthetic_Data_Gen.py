@@ -4,19 +4,38 @@ import matplotlib as plt
 import skimage.draw as draw
 import math
 
+"""
+To do:
+- test sub functions such as: 
+    -- generating a centred branch
+    -- cutting off out of frame branches
+    -- generating volume around coordinates (random straight line)
+- investigate cutting off out of frame cell volume
+- randomly place structures
+- add other structure variants (more or less than 4 branches up to 6)
+- compound branches
+- add rng to compound branches
+
+"""
 
 class synth_data_gen:
     def __init__(self, output_path, original_size):
+        """
+        This is the initialization call for this class. This class is to generate synthetic cell data.
+        :param output_path: Where the synthetic data will be stored for future use
+        :param original_size: The x,y size of the synthetic data. This will determine the resolution.
+        """
         self.output_path = output_path
         self.original_shape = original_size
         self.synthetic_image = np.zeros(shape=original_size)
 
-    def volume_generation(self, branches, slope, offset_perc):
+    def volume_generation(self, branches, slope, thickness, offset_perc):
         """
         This function will generate linearly decaying volume around a branch. The noise must starkly drop and then plateau outward for x positions.
         This will be linear or inversely exponential for the moment. This might be generated using a normal distribution in future
         :param branches: The branch coordinates and values
         :param slope: Inversely proportional to the rate of decay of the volume
+        :param thickness: The size of the volume to be generated. This can also be seen as the number of steps away from the centre
         :param offset_perc: The initial noise adjacent to the branch will be a percentage of the branch intensity as it radiates outward
         :return: The coordinates with the determined noise values
         """
@@ -24,9 +43,70 @@ class synth_data_gen:
         sigma = slope
         estimate_width = int(
         math.ceil(3 * math.sqrt(sigma)))  # This will return the integer greater than or equal. Therefore 3*math.sqrt(sigma) = 2.2 becomes 3.0
+        bins = np.linspace(0, int(thickness/2)+1, int(thickness/2)+1)
+        mu = 0
+        dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
+        branch_layers = []
+        #If "branches" is a list of branches which have their own respective list of coordinates and magnitudes then encapsulate in a list
         for branch, branch_mag in branches.items():
+            branch_layer = np.zeros(shape=self.original_shape)
+            volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins))
+            coords = np.array(volume_dist_dicts.keys())
+            distances = np.array([self.interpolate_distribution(val, dens) for val in volume_dist_dicts.values()])
+            # Assuming shaping is correct
+            branch_layer[coords] = distances
+            branch_layers.append(branch_layer)
+        branch_volumes = np.amax(np.stack(branch_layers, axis=0), 0)
 
+    def recursive_grow_radiate(self, centre, max_dist, current_coords=None):
+        already_seen = []
+        next_coords = []
+        if current_coords is None:
+            current_coords = centre
+            next_coords = [[centre[0]+1, centre[1]], [centre[0]-1, centre[1]], [centre[0], centre[1]+1], [centre[0], centre[1]-1]]
+        else:
+            for c in current_coords:
+                if c[0] >= centre[0]:
+                    if [c[0]+1, c[1]] not in already_seen:
+                        next_coords.append([c[0]+1, c[1]])
+                        already_seen.append([c[0]+1, c[1]])
+                else:
+                    if [c[0]-1, c[1]] not in already_seen:
+                        next_coords.append([c[0]-1, c[1]])
+                        already_seen.append([c[0]-1, c[1]])
+                if c[1] <= centre[1]:
+                    if [c[0], c[1]-1] not in already_seen:
+                        next_coords.append([c[0], c[1]-1])
+                        already_seen.append([c[0], c[1]-1])
+                else:
+                    if [c[0], c[1]+1] not in already_seen:
+                        next_coords.append([c[0], c[1]+1])
+                        already_seen.append([c[0], c[1]+1])
 
+        dist_per_coord = {}
+        for n in next_coords:
+            if self.out_of_bounds(n):
+                distance = math.sqrt((centre[0]-n[0])**2 + (centre[1]-n[1])**2)
+                if distance <= max_dist:
+                    dist_per_coord[n] = distance
+        new_current_coords = list(dist_per_coord)
+        if len(new_current_coords) > 0:
+            radiate_next = self.recursive_grow_radiate(centre, max_dist, new_current_coords)
+            dist_per_coord.update(radiate_next)
+        return dist_per_coord
+
+    def interpolate_distribution(self, distance, distrib):
+        int_dist = int(distance)
+        m = distrib[int_dist+1] - distrib[int_dist]
+        new_val = m*(distance-int_dist) + distrib[int_dist]
+        print(distrib[int_dist], new_val, distrib[int_dist+1])
+        return new_val
+
+    def out_of_bounds(self, coord):
+        if 0 <= coord[0] <= (self.original_shape[0] - 1) and 0 <= coord[1] <= (self.original_shape[1] - 1):
+            return True
+        else:
+            return False
 
     def generate_branches(self, centre, branch_length, thickness=1, diagonal=False):
         """
