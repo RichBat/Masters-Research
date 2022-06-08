@@ -1,9 +1,9 @@
 import skimage
 import numpy as np
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import skimage.draw as draw
 import math
-
+from skimage import io
 """
 To do:
 - test sub functions such as: 
@@ -29,7 +29,7 @@ class synth_data_gen:
         self.original_shape = original_size
         self.synthetic_image = np.zeros(shape=original_size)
 
-    def volume_generation(self, branches, slope, thickness, offset_perc):
+    def volume_generation(self, branches, slope, thickness=10, offset_perc=0):
         """
         This function will generate linearly decaying volume around a branch. The noise must starkly drop and then plateau outward for x positions.
         This will be linear or inversely exponential for the moment. This might be generated using a normal distribution in future
@@ -40,66 +40,96 @@ class synth_data_gen:
         :return: The coordinates with the determined noise values
         """
         #What if the average of surrounding pixels values is weighted by some decaying curve which decreases as the pixel gets further from the structure centre?
-        sigma = slope
+        sigma = slope if slope > 0 else 1
         estimate_width = int(
         math.ceil(3 * math.sqrt(sigma)))  # This will return the integer greater than or equal. Therefore 3*math.sqrt(sigma) = 2.2 becomes 3.0
-        bins = np.linspace(0, int(thickness/2)+1, int(thickness/2)+1)
+        bins = np.linspace(0, int(thickness/2)+2, int(thickness/2)+2)
         mu = 0
         dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
+        #print(dens)
         branch_layers = []
         #If "branches" is a list of branches which have their own respective list of coordinates and magnitudes then encapsulate in a list
         for branch, branch_mag in branches.items():
             branch_layer = np.zeros(shape=self.original_shape)
-            volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins))
-            coords = np.array(volume_dist_dicts.keys())
+            volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins)-2)
+            print(volume_dist_dicts)
+            coords = np.array(list(volume_dist_dicts.keys()))
+            #print(volume_dist_dicts[(41, 20)])
             distances = np.array([self.interpolate_distribution(val, dens) for val in volume_dist_dicts.values()])
             # Assuming shaping is correct
-            branch_layer[coords] = distances
+            test_ones = np.ones(distances.shape)
+            test_layer = np.zeros(shape=self.original_shape)
+            branch_layer[coords[:, 0], coords[:, 1]] = distances
+            test_layer[coords[:, 0], coords[:, 1]] = test_ones
             branch_layers.append(branch_layer)
+            io.imshow(test_layer)
+            plt.show()
         branch_volumes = np.amax(np.stack(branch_layers, axis=0), 0)
+        return branch_volumes
 
     def recursive_grow_radiate(self, centre, max_dist, current_coords=None):
         already_seen = []
         next_coords = []
+        if centre[0] == 40 and centre[1] == 21:
+            print("********************************************")
+            print(current_coords)
         if current_coords is None:
             current_coords = centre
             next_coords = [[centre[0]+1, centre[1]], [centre[0]-1, centre[1]], [centre[0], centre[1]+1], [centre[0], centre[1]-1]]
         else:
             for c in current_coords:
-                if c[0] >= centre[0]:
+                if c[0] >= centre[0] and c[1] >= centre[1]:
                     if [c[0]+1, c[1]] not in already_seen:
-                        next_coords.append([c[0]+1, c[1]])
+                        next_coords.append([c[0] + 1, c[1]])
                         already_seen.append([c[0]+1, c[1]])
-                else:
                     if [c[0]-1, c[1]] not in already_seen:
                         next_coords.append([c[0]-1, c[1]])
                         already_seen.append([c[0]-1, c[1]])
-                if c[1] <= centre[1]:
-                    if [c[0], c[1]-1] not in already_seen:
-                        next_coords.append([c[0], c[1]-1])
-                        already_seen.append([c[0], c[1]-1])
-                else:
                     if [c[0], c[1]+1] not in already_seen:
                         next_coords.append([c[0], c[1]+1])
                         already_seen.append([c[0], c[1]+1])
 
+                '''if c[0] >= centre[0]:
+                    if [c[0]+1, c[1]] not in already_seen:
+                        next_coords.append([c[0]+1, c[1]])
+                        #already_seen.append([c[0]+1, c[1]])
+                else:
+                    if [c[0]-1, c[1]] not in already_seen:
+                        next_coords.append([c[0]-1, c[1]])
+                        #already_seen.append([c[0]-1, c[1]])
+                if c[1] <= centre[1]:
+                    if [c[0], c[1]-1] not in already_seen:
+                        next_coords.append([c[0], c[1]-1])
+                        #already_seen.append([c[0], c[1]-1])
+                else:
+                    if [c[0], c[1]+1] not in already_seen:
+                        next_coords.append([c[0], c[1]+1])
+                        #already_seen.append([c[0], c[1]+1])'''
+
         dist_per_coord = {}
         for n in next_coords:
             if self.out_of_bounds(n):
-                distance = math.sqrt((centre[0]-n[0])**2 + (centre[1]-n[1])**2)
+                distance = math.sqrt(abs(centre[0]-n[0])**2 + abs(centre[1]-n[1])**2)
                 if distance <= max_dist:
-                    dist_per_coord[n] = distance
+                    dist_per_coord[(n[0], n[1])] = distance
+                else:
+                    if centre[0] == 40 and centre[1] == 21:
+                        print("Out of range", n[0], n[1], distance)
+            else:
+                print("Out of bounds", n)
         new_current_coords = list(dist_per_coord)
         if len(new_current_coords) > 0:
             radiate_next = self.recursive_grow_radiate(centre, max_dist, new_current_coords)
             dist_per_coord.update(radiate_next)
+        if centre[0] == 40 and centre[1] == 21:
+            print("Updated Distances per coord", dist_per_coord)
         return dist_per_coord
 
     def interpolate_distribution(self, distance, distrib):
         int_dist = int(distance)
         m = distrib[int_dist+1] - distrib[int_dist]
         new_val = m*(distance-int_dist) + distrib[int_dist]
-        print(distrib[int_dist], new_val, distrib[int_dist+1])
+        #print(distrib[int_dist], new_val, distrib[int_dist+1])
         return new_val
 
     def out_of_bounds(self, coord):
@@ -186,24 +216,25 @@ class synth_data_gen:
         :rtype: Dict with tuple key and int value
         """
 
-        branches = self.generate_branches(centre, branch_length, diagonal=diagonal)
+        branches = self.generate_branches(centre, branch_length-1, diagonal=diagonal)
         scaled_branches = {}
         for branch in branches:
             if scaling_type == 0 and "steepness" in kwargs:
                 steepness = kwargs["steepness"]
-                branch_values = self.scaling_expo(len(branch), peak_value, steepness, noise_offset)
+                branch_values = self.scaling_expo(branch_length, peak_value, steepness, noise_offset)
             elif scaling_type == 1 and "shallowness" in kwargs:
                 shallowness = kwargs["shallowness"]
-                branch_values = self.scaling_log(len(branch), peak_value, shallowness, noise_offset)
+                branch_values = self.scaling_log(branch_length, peak_value, shallowness, noise_offset)
             elif scaling_type == 2 and "pattern" in kwargs:
+                print("Pattern")
                 pattern = kwargs["pattern"]
                 decay = 1 if "decay" not in kwargs else kwargs["decay"]
-                branch_values = self.scaling_pattern(len(branch), peak_value, pattern, noise_offset, decay)
+                branch_values = self.scaling_pattern(branch_length, peak_value, pattern, noise_offset, decay)
             else:
                 decay = 1 if "decay" not in kwargs else kwargs["decay"]
                 stepsize = 1 if "stepsize" not in kwargs else kwargs["stepsize"]
-                branch_values = self.scaling_fixed(len(branch), peak_value, noise_offset, decay, stepsize)
-            self.coord_to_value(branch, branch_values, scaled_branches)
+                branch_values = self.scaling_fixed(branch_length, peak_value, noise_offset, decay, stepsize)
+            scaled_branches = self.coord_to_value(branch, branch_values, scaled_branches)
         return scaled_branches
 
     def scaling_expo(self, branch_length, peak_intensity, steepness, noise_offset):
@@ -222,8 +253,8 @@ class synth_data_gen:
         """
         branch_values = []
         branch_exp_range = []
-        for b in range(len(branch_length), 0, -1):
-            branch_exp_range.append(steepness^b)
+        for b in range(branch_length, 0, -1):
+            branch_exp_range.append((1 + steepness/100)**b)
         base_intensity = (peak_intensity - noise_offset) / max(branch_exp_range)
         for ber in branch_exp_range:
             rescale = int(ber * base_intensity + noise_offset) if ber * base_intensity >= 1 else 1 + noise_offset
@@ -247,9 +278,14 @@ class synth_data_gen:
         """
         branch_values = []
         branch_log_range = []
-        for b in range(len(branch_length), 0, -1):
+        for b in range(branch_length, 0, -1):
+            print(b, shallowness, math.log(b, shallowness))
             branch_log_range.append(math.log(b, shallowness))
         base_intensity = (peak_intensity - noise_offset)/max(branch_log_range)
+        '''branch_log_range.reverse()
+        plt.plot(np.linspace(0, len(branch_log_range), len(branch_log_range)), branch_log_range)
+        branch_log_range.reverse()'''
+        plt.show()
         for blr in branch_log_range:
             rescale = int(blr*base_intensity + noise_offset) if blr*base_intensity >= 1 else 1 + noise_offset
             branch_values.append(rescale)
@@ -297,11 +333,13 @@ class synth_data_gen:
         branch_values = []
         step = 0
         initial_value = branch_length
+        used_value = initial_value
         for b in range(branch_length, 0, -1):
             if step >= stepsize:
                 step = 0
                 initial_value -= decay if initial_value > decay else 1
-            branch_values.append(int(initial_value*base_intensity + noise_offset))
+                used_value = initial_value if initial_value > 0 else (branch_length + initial_value)/branch_length
+            branch_values.append(int(used_value*base_intensity + noise_offset))
             step += 1
         return branch_values
 
@@ -337,7 +375,83 @@ class synth_data_gen:
             coord_values[coords[c]] = values[c] if coords[c] not in coord_values else max(coord_values[coords[c]], values[c])
         return coord_values
 
+    def test_function(self, excluded_tests = []):
+        middle = (int(self.original_shape[0]/2), int(self.original_shape[1]/2))
+        peak, branch_length = int(self.original_shape[0] / 4), int(self.original_shape[0] / 4)
+        if 0 not in excluded_tests:
+            test_branches = {}
+            for case in [0, 1, 2, 3]:
+                try:
+                    if case == 0:
+                        test_branches[0] = self.create_branch_structure(middle, branch_length, peak, 0, steepness=15)
+                    elif case == 1:
+                        test_branches[1] = self.create_branch_structure(middle, branch_length, peak, 1, shallowness=20)
+                    elif case == 2:
+                        test_branches[2] = self.create_branch_structure(middle, branch_length, peak, 2, pattern=[6, 4, 3, 1, 2, 3])
+                    else:
+                        test_branches[3] = self.create_branch_structure(middle, branch_length, peak, 3, decay=1.5, stepsize=3)
+                except Exception as e:
+                    print("#######################################################")
+                    print(e)
+                    print("Failed for case " + str(case))
+                    print("#######################################################")
+            for _case, tb in test_branches.items():
+                indexes = [list(tkeys) for tkeys in list(tb.keys())]
+                values = [tvals for tvals in list(tb.values())]
+                temp_image = np.zeros_like(self.synthetic_image)
+                temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+                plt.title("Test for case " + str(_case))
+                io.imshow(temp_image)
+                plt.show()
+        if 1 not in excluded_tests:
+            try:
+                off_center = (int(self.original_shape[0] / 6), int(self.original_shape[1] / 6))
+                off_center_branch = self.create_branch_structure(off_center, branch_length, peak, 3, stepsize=2)
+                indexes = [list(tkeys) for tkeys in list(off_center_branch.keys())]
+                values = [tvals for tvals in list(off_center_branch.values())]
+                temp_image = np.zeros_like(self.synthetic_image)
+                temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+                plt.title("Image for cut-off branches")
+                io.imshow(temp_image)
+                plt.show()
+            except Exception as e:
+                print("#######################################################")
+                print(e)
+                print("Branch cut-off test failed")
+                print("#######################################################")
+        if 2 not in excluded_tests:
+            # Diagonal Test
+            try:
+                diag_branches = self.create_branch_structure(middle, branch_length, peak, 3, stepsize=2, diagonal=True)
+                indexes = [list(tkeys) for tkeys in list(diag_branches.keys())]
+                values = [tvals for tvals in list(diag_branches.values())]
+                temp_image = np.zeros_like(self.synthetic_image)
+                temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+                plt.title("Image for diagonal branches")
+                io.imshow(temp_image)
+                plt.show()
+            except Exception as e:
+                print("#######################################################")
+                print(e)
+                print("Diagonal branches test failed")
+                print("#######################################################")
+        if 3 not in excluded_tests:
+            # Volume Test
+            print("Centre", middle)
+            volume_branches = self.create_branch_structure(middle, branch_length, peak, 3, stepsize=2)
+            indexes = [list(tkeys) for tkeys in list(volume_branches.keys())]
+            values = [tvals for tvals in list(volume_branches.values())]
+            temp_image = np.zeros_like(self.synthetic_image)
+            temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+            plt.title("Volume Branches")
+            io.imshow(temp_image)
+            plt.show()
+            print(volume_branches)
+            volume_generate = self.volume_generation(volume_branches, int(branch_length)/3)
+            #temp_image = np.zeros_like(self.synthetic_image)
+            io.imshow(volume_generate)
+            plt.show()
 
 if __name__ == "__main__":
-    for b in range(10, 0, -1):
-        print(b)
+    branch_test = synth_data_gen("", (80, 80))
+    branch_test.test_function([0, 1, 2])

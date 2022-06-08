@@ -14,6 +14,7 @@ import numpy as np
 from knee_locator import KneeLocator
 import sample_checker
 import json
+import csv
 
 #This file is similar to AutoHysteresis.py but is cleaner with less clutter and contains only currently relevant functionality
 
@@ -772,17 +773,14 @@ def recursive_intensity_steps(bottom, top, ratio):
     return steps
 
 
-def testing_knee(img, cutoff=1, filter_value=None, log_hist=False):
-    #print("Histogram for knee")
+def testing_knee(img, cutoff=1, filter_value=None, log_hist=False, sensitivity=1):
     counts, centers = histogram(img, nbins=256)
-
     gaussian_image = gaussian(img)
     rescaled_gaussian_image = (gaussian_image/np.max(gaussian_image))*np.max(img)
     #print("Rescaled Gaussian Otsu", threshold_otsu(rescaled_gaussian_image))
     norm_gaussian = (gaussian_image/np.max(gaussian_image))*np.max(img)
     gaussian_counts, gaussian_centers = histogram(norm_gaussian, nbins=256)
     gaussian_counts, gaussian_centers = ((gaussian_counts/np.max(gaussian_counts))*np.max(counts)).astype('int'), ((gaussian_centers / np.max(gaussian_centers)) * np.max(centers)).astype('int')
-
     if cutoff < centers[0]:
         cut = 1
     else:
@@ -814,10 +812,10 @@ def testing_knee(img, cutoff=1, filter_value=None, log_hist=False):
     true_knee = 0
     knee_found = True
     gaussian_knee = 0
-    first_knee = int(KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing").knee)
+    first_knee = int(KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing", S=sensitivity).knee)
     while safe_knee:
-        locator = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing")
-        glocator = KneeLocator(x=gaussian_centers, y=gaussian_counts, curve="convex", direction="decreasing")
+        locator = KneeLocator(x=centers, y=counts, curve="convex", direction="decreasing", S=sensitivity)
+        glocator = KneeLocator(x=gaussian_centers, y=gaussian_counts, curve="convex", direction="decreasing", S=sensitivity)
         knee = int(locator.knee)
         gaussian_knee = int(glocator.knee)
         if knee > otsu_thresh and knee_found:
@@ -958,8 +956,8 @@ def hysteresis_iterate_batch(input_paths, save_path):
         print("Saved")
 
 def low_select(img):
-    __, normal_knee, ___ = testing_knee(img, log_hist=False)
-    __, log_knee, ___ = testing_knee(img, log_hist=True)
+    __, normal_knee, ___ = testing_knee(img, log_hist=False, sensitivity=0.2)
+    __, log_knee, ___ = testing_knee(img, log_hist=True, sensitivity=0.2)
     otsu_thresh = threshold_otsu(img)
     if otsu_thresh <= normal_knee:
         chosen_knee = normal_knee
@@ -998,14 +996,163 @@ def preview_histograms_range(input_path):
     plt.plot(intensities1, voxels_by_intensity1)
     plt.show()
 
+def check_sample_low(path, name):
+    img = io.imread(path + name)
+    counts, centers = histogram(img, nbins=256)
+    low_threshold = low_select(img)
+    print("Low Thresh", low_threshold)
+    fig, (ax1, ax2) = plt.subplots(1, 2)
+    ax1.plot(centers, counts, color='b')
+    ax1.axvline(low_threshold, color='r')
+    ax1.title.set_text("Original Hist")
+    low_index = np.where(centers == low_threshold)[0][0] + 8
+    new_img = np.zeros_like(img)
+    new_img = img[np.where(img > low_threshold)]
+    counts2, centers2 = counts[low_index:], centers[low_index:]
+    locator = KneeLocator(x=centers2, y=counts2, curve="convex", direction="increasing", S=0.2)
+    low_threshold2 = int(locator.knee)
+    low_index = np.where(centers2 == low_threshold2)
+    print("New Low Thresh", low_threshold2)
+    ax2.plot(centers2, counts2, color='b')
+    ax2.axvline(low_threshold2, color='r')
+    ax2.title.set_text("New Hist")
+    plt.show()
 
+def data_to_csv(fields, data, save_path, save_name):
+    """
+    This is a function to write the data to an easily readable csv file for reviewing
+    :param fields: This will be the parameter fields for the different data points
+    :param data: This will be the specific data for each point
+    :param save_path: This will be the location that the csv will be saved to
+    :param save_name: This will be the name of the storage csv file
+    :return: None, the csv file will be saved
+    """
+
+    with open(save_path + save_name + ".csv", 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fields, dialect='excel')
+        writer.writeheader()
+        writer.writerows(data)
+
+def organise_data(file_paths, discrete_data=True, high_thresh_data=True, relative_change_data=True, save_path="C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\"):
+    """
+    This will organise the data from the separate directories accordingly and call the respective data structuring methods.
+    :param file_paths: A dictionary with the full path as a key and collection name as a value
+    :param discrete_data: Whether the discrete low threshold data will be collected
+    :param high_thresh_data: Whether the high threshold data will be collected
+    :param relative_change_data: Whether the data that describes the relative change will be shown. This is for time series low thresh and for high thresh data
+    :type file_paths: dict
+    :type discrete_data: bool
+    :type high_thresh_data: bool
+    :type relative_change_data: bool
+    :return:
+    """
+
+    just_paths = list(file_paths)
+    files = {file_paths[indiv_paths]:[[indiv_paths, f] for f in listdir(indiv_paths + "Preprocessed\\")
+                                      if isfile(join(indiv_paths + "Preprocessed\\", f)) and f.endswith('.tif')] for indiv_paths in just_paths}
+
+    discrete_data_list = []
+    high_thresh_data_list = []
+    relative_change_data_list = []
+    #print(files)
+    for coll, samples in files.items():
+        for sample in samples:
+            sample_data = time_data_split(sample[1], sample[0] + "Preprocessed\\", sample[0] + "Deconvolved\\")
+            if sample_data is not None:
+                for t in range(len(sample_data)):
+                    if discrete_data:
+                        discrete_data_list.append(discrete_data_extract(sample_data[t], sample[1], coll, t))
+                if discrete_data:
+                    blank = {"Group": "", "Sample": "", "T": "", "Normal": "", "Log": "", "Otsu": "", "Triangle": "", "Chosen": "",
+                             "Otsu < Norm": "", "Log>Triangle": ""}
+                    discrete_data_list.append(blank)
+    if discrete_data:
+        data_to_csv(list(discrete_data_list[0]), discrete_data_list, save_path, "Discrete_Only")
+
+def discrete_data_extract(image_file, name, collection, T=0):
+    __, normal_knee, ___ = testing_knee(image_file, log_hist=False, sensitivity=0.2)
+    __, log_knee, ___ = testing_knee(image_file, log_hist=True, sensitivity=0.2)
+    other_thresholds = other_threshold_results(image_file)
+    otsu_thresh = other_thresholds["Otsu"]
+    triangle_thresh = other_thresholds["Triangle"]
+    if name.startswith(collection):
+        name = name[len(collection):]
+    collected_data = {"Group":collection, "Sample":name, "T":T, "Normal":normal_knee, "Log":log_knee, "Otsu":otsu_thresh, "Triangle":triangle_thresh,
+                      "Chosen":normal_knee if otsu_thresh <= normal_knee else log_knee, "Otsu < Norm":otsu_thresh <= normal_knee,
+                      "Log>Triangle":log_knee>triangle_thresh}
+    return collected_data
+
+def time_data_split(image_name, img_path, decon_path):
+    """
+    This script will open files. If they are time series they will be saved as a list of time frames. If the dimensions are mismatched then they will be
+    restored
+    :param image_name: The name for the image which will be matched to the img_path and the decon_path
+    :param img_path: The path to the input preprocessed image
+    :param decon_path: The path to the respective deconvolved image
+    :return: An ordered list of image ndArrays of a length equal to the number of time frames
+    """
+    decon_files = [f for f in listdir(decon_path) if isfile(join(decon_path, f))]
+    input_image = io.imread(img_path + image_name)
+    image_shape = input_image.shape
+    timeframes = []
+    if len(image_shape) > 3:
+        if image_shape[-1] == 3 and image_shape[-2] == image_shape[-3]:
+            input_image = rgb_ave(input_image)
+            image_shape = input_image.shape
+    if len(image_shape) < 4:
+        #There is only z/t, x, y
+        if image_name not in decon_files:
+            return None
+        decon_file = io.imread(decon_path + image_name)
+        if len(decon_file.shape) == len(image_shape) or (decon_file.shape[-1] == 3 and len(decon_file.shape[:-1]) == len(image_shape)):
+            # deconvolved and preprocessed image both have no timeframes
+            return [input_image]
+        else:
+            time_res = decon_file.shape[0]
+            z_res = decon_file.shape[1]
+            for t in range(time_res):
+                t_lower = t*z_res
+                t_upper = t*z_res + z_res
+                timeframes.append(input_image[t_lower:t_upper])
+            return timeframes
+    else:
+        # This is the case where t & z are not mixed together
+        if len(image_shape) > 3:
+            print("Timeframes present but not mixed:", image_shape)
+            for t in range(image_shape[0]):
+                timeframes.append(input_image[t])
+            return timeframes
+        else:
+            return [input_image]
+
+def rgb_ave(image):
+    if len(image.shape) > 3 and image.shape[-1] == 3:
+        return np.mean(image, axis=-1).astype('uint8')
+    else:
+        return image
+
+def other_threshold_results(img):
+    result = {}
+    result["Otsu"] = float(threshold_otsu(img))
+    result["Triangle"] = float(threshold_triangle(img))
+    return result
 
 if __name__ == "__main__":
     #preview_histograms_range("C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\CCCP+Baf_2C=0Noise000.tif")
     #testing()
     #start_time = time.process_time()
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Testing Input data\\", "C:\\RESEARCH\\Mitophagy_data\\Testing Input data 2\\"]
-    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview\\"
-    hysteresis_iterate_batch(input_path, save_path)
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\New Input data\\"]
+    save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview2\\"
+    organise_data({"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1", "C:\\RESEARCH\\Mitophagy_data\\N2\\":"N2", "C:\\RESEARCH\\Mitophagy_data\\N3\\":"N3",
+                   "C:\\RESEARCH\\Mitophagy_data\\N4\\":"N4"})
+    '''"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1", "C:\\RESEARCH\\Mitophagy_data\\N2\\":"N2", "C:\\RESEARCH\\Mitophagy_data\\N3\\":"N3",
+                   "C:\\RESEARCH\\Mitophagy_data\\N4\\":"N4"'''
+    '''"C:\\RESEARCH\\Mitophagy_data\\Sholto Data Crunch\\Mitophagy\\New n1\\":"New n1",
+                   "C:\\RESEARCH\\Mitophagy_data\\Sholto Data Crunch\\Mitophagy\\New n2\\":"New n2",
+                   "C:\\RESEARCH\\Mitophagy_data\\Sholto Data Crunch\\Mitophagy\\New n3\\":"New n3"'''
+    '''img = io.imread("C:\\RESEARCH\\Mitophagy_data\\N3\\Preprocessed\\N3CCCP+Baf_3C=0.tif")[0]
+    __, normal_knee, ___ = testing_knee(img, log_hist=False, sensitivity=0.2)'''
+    #hysteresis_iterate_batch(input_path, save_path)
+    #check_sample_low(input_path[0], "N3CCCP_1C=0T=0.tif")
     #print("Total Time", time.process_time() - start_time)
     #preview_hysteresis_high('CCCP_1C=0Noise000.tif')
