@@ -29,7 +29,7 @@ class synth_data_gen:
         self.original_shape = original_size
         self.synthetic_image = np.zeros(shape=original_size)
 
-    def volume_generation(self, branches, slope, thickness=10, offset_perc=0):
+    def volume_generation(self, branches, slope, thickness=10, offset_value=0):
         """
         This function will generate linearly decaying volume around a branch. The noise must starkly drop and then plateau outward for x positions.
         This will be linear or inversely exponential for the moment. This might be generated using a normal distribution in future
@@ -40,45 +40,46 @@ class synth_data_gen:
         :return: The coordinates with the determined noise values
         """
         #What if the average of surrounding pixels values is weighted by some decaying curve which decreases as the pixel gets further from the structure centre?
-        sigma = slope if slope > 0 else 1
+        sigma = slope
         estimate_width = int(
-        math.ceil(3 * math.sqrt(sigma)))  # This will return the integer greater than or equal. Therefore 3*math.sqrt(sigma) = 2.2 becomes 3.0
+        math.ceil(3 * math.sqrt(sigma) + offset_value))  # This will return the integer greater than or equal. Therefore 3*math.sqrt(sigma) = 2.2 becomes 3.0
         bins = np.linspace(0, int(thickness/2)+2, int(thickness/2)+2)
         mu = 0
         dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
+        plt.plot(bins, dens)
+        plt.show()
         #print(dens)
         branch_layers = []
         #If "branches" is a list of branches which have their own respective list of coordinates and magnitudes then encapsulate in a list
         for branch, branch_mag in branches.items():
             branch_layer = np.zeros(shape=self.original_shape)
             volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins)-2)
-            print(volume_dist_dicts)
             coords = np.array(list(volume_dist_dicts.keys()))
             #print(volume_dist_dicts[(41, 20)])
             distances = np.array([self.interpolate_distribution(val, dens) for val in volume_dist_dicts.values()])
             # Assuming shaping is correct
-            test_ones = np.ones(distances.shape)
-            test_layer = np.zeros(shape=self.original_shape)
             branch_layer[coords[:, 0], coords[:, 1]] = distances
+            branch_layer = branch_layer/np.max(branch_layer)
+            branch_layer[branch[0], branch[1]] = 1
+            #print("Branch Coord:", branch, "Branch Value:", branch_mag)
+            branch_layers.append(branch_layer*branch_mag)
+            '''test_ones = np.ones(distances.shape)
+            test_layer = np.zeros(shape=self.original_shape)
             test_layer[coords[:, 0], coords[:, 1]] = test_ones
-            branch_layers.append(branch_layer)
             io.imshow(test_layer)
-            plt.show()
+            plt.show()'''
         branch_volumes = np.amax(np.stack(branch_layers, axis=0), 0)
         return branch_volumes
 
     def recursive_grow_radiate(self, centre, max_dist, current_coords=None):
         already_seen = []
         next_coords = []
-        if centre[0] == 40 and centre[1] == 21:
-            print("********************************************")
-            print(current_coords)
         if current_coords is None:
             current_coords = centre
             next_coords = [[centre[0]+1, centre[1]], [centre[0]-1, centre[1]], [centre[0], centre[1]+1], [centre[0], centre[1]-1]]
         else:
             for c in current_coords:
-                if c[0] >= centre[0] and c[1] >= centre[1]:
+                '''if c[0] >= centre[0] and c[1] >= centre[1]:
                     if [c[0]+1, c[1]] not in already_seen:
                         next_coords.append([c[0] + 1, c[1]])
                         already_seen.append([c[0]+1, c[1]])
@@ -87,24 +88,54 @@ class synth_data_gen:
                         already_seen.append([c[0]-1, c[1]])
                     if [c[0], c[1]+1] not in already_seen:
                         next_coords.append([c[0], c[1]+1])
-                        already_seen.append([c[0], c[1]+1])
+                        already_seen.append([c[0], c[1]+1])'''
+                if c[0] == centre[0]:
+                    if [c[0] + 1, c[1]] not in already_seen:
+                        next_coords.append([c[0] + 1, c[1]])
+                        already_seen.append([c[0] + 1, c[1]])
+                    if [c[0] - 1, c[1]] not in already_seen:
+                        next_coords.append([c[0] + 1, c[1]])
+                        already_seen.append([c[0] + 1, c[1]])
+                    if c[1] > centre[1]:
+                        if [c[0], c[1] + 1] not in already_seen:
+                            next_coords.append([c[0], c[1] + 1])
+                            already_seen.append([c[0], c[1] + 1])
+                    if c[1] < centre[1]:
+                        if [c[0], c[1] - 1] not in already_seen:
+                            next_coords.append([c[0], c[1] - 1])
+                            already_seen.append([c[0], c[1] - 1])
+                if c[1] == centre[1]:
+                    if [c[0], c[1] + 1] not in already_seen:
+                        next_coords.append([c[0], c[1] + 1])
+                        already_seen.append([c[0], c[1] + 1])
+                    if [c[0], c[1] - 1] not in already_seen:
+                        next_coords.append([c[0], c[1] - 1])
+                        already_seen.append([c[0], c[1] - 1])
+                    if c[0] > centre[0]:
+                        if [c[0] + 1, c[1]] not in already_seen:
+                            next_coords.append([c[0] + 1, c[1]])
+                            already_seen.append([c[0] + 1, c[1]])
+                    if c[0] < centre[0]:
+                        if [c[0] - 1, c[1]] not in already_seen:
+                            next_coords.append([c[0] - 1, c[1]])
+                            already_seen.append([c[0] - 1, c[1]])
 
-                '''if c[0] >= centre[0]:
+                if c[0] > centre[0]:
                     if [c[0]+1, c[1]] not in already_seen:
                         next_coords.append([c[0]+1, c[1]])
-                        #already_seen.append([c[0]+1, c[1]])
+                        already_seen.append([c[0]+1, c[1]])
                 else:
                     if [c[0]-1, c[1]] not in already_seen:
                         next_coords.append([c[0]-1, c[1]])
-                        #already_seen.append([c[0]-1, c[1]])
-                if c[1] <= centre[1]:
+                        already_seen.append([c[0]-1, c[1]])
+                if c[1] < centre[1]:
                     if [c[0], c[1]-1] not in already_seen:
                         next_coords.append([c[0], c[1]-1])
-                        #already_seen.append([c[0], c[1]-1])
+                        already_seen.append([c[0], c[1]-1])
                 else:
                     if [c[0], c[1]+1] not in already_seen:
                         next_coords.append([c[0], c[1]+1])
-                        #already_seen.append([c[0], c[1]+1])'''
+                        already_seen.append([c[0], c[1]+1])
 
         dist_per_coord = {}
         for n in next_coords:
@@ -112,17 +143,12 @@ class synth_data_gen:
                 distance = math.sqrt(abs(centre[0]-n[0])**2 + abs(centre[1]-n[1])**2)
                 if distance <= max_dist:
                     dist_per_coord[(n[0], n[1])] = distance
-                else:
-                    if centre[0] == 40 and centre[1] == 21:
-                        print("Out of range", n[0], n[1], distance)
             else:
                 print("Out of bounds", n)
         new_current_coords = list(dist_per_coord)
         if len(new_current_coords) > 0:
             radiate_next = self.recursive_grow_radiate(centre, max_dist, new_current_coords)
             dist_per_coord.update(radiate_next)
-        if centre[0] == 40 and centre[1] == 21:
-            print("Updated Distances per coord", dist_per_coord)
         return dist_per_coord
 
     def interpolate_distribution(self, distance, distrib):
@@ -212,6 +238,10 @@ class synth_data_gen:
         :param noise_offset: The offset from the background noise in the synthetic data such that the lowest intensities are still greater than the noise
         :param diagonal: The orientation of the cross-shaped branch structure
         :param kwargs: The conditional arguements specific to each scaling type
+        :param: steepness: (Optional) This parameter is to be used with inverse exponential scaling
+        :param: shallowness: (Optional) This parameter is to be used with inverse logarithmic scaling
+        :param: pattern: (Optional) This is the ordered list of numbers with the initial element being the origin of the branch and the further
+        elements extending away from the branch origin. The list must be of depth 1, no sub-lists
         :return: The combined final branch structure with branch values organised by coordinate key
         :rtype: Dict with tuple key and int value
         """
@@ -438,7 +468,7 @@ class synth_data_gen:
         if 3 not in excluded_tests:
             # Volume Test
             print("Centre", middle)
-            volume_branches = self.create_branch_structure(middle, branch_length, peak, 3, stepsize=2)
+            volume_branches = self.create_branch_structure(middle, branch_length, 255, 0, steepness=1, stepsize=1, diagonal=False)
             indexes = [list(tkeys) for tkeys in list(volume_branches.keys())]
             values = [tvals for tvals in list(volume_branches.values())]
             temp_image = np.zeros_like(self.synthetic_image)
@@ -447,7 +477,7 @@ class synth_data_gen:
             io.imshow(temp_image)
             plt.show()
             print(volume_branches)
-            volume_generate = self.volume_generation(volume_branches, int(branch_length)/3)
+            volume_generate = self.volume_generation(volume_branches, int(branch_length)/3, 15, 20)
             #temp_image = np.zeros_like(self.synthetic_image)
             io.imshow(volume_generate)
             plt.show()

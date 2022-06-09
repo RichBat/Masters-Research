@@ -1055,19 +1055,32 @@ def organise_data(file_paths, discrete_data=True, high_thresh_data=True, relativ
     high_thresh_data_list = []
     relative_change_data_list = []
     #print(files)
+    print("Discrete Data: " + str(discrete_data) + " High Thresh Data: " + str(high_thresh_data))
     for coll, samples in files.items():
         for sample in samples:
             sample_data = time_data_split(sample[1], sample[0] + "Preprocessed\\", sample[0] + "Deconvolved\\")
+            sample_hist_info = {}
             if sample_data is not None:
                 for t in range(len(sample_data)):
                     if discrete_data:
                         discrete_data_list.append(discrete_data_extract(sample_data[t], sample[1], coll, t))
+                    if high_thresh_data:
+                        high_thresh_results, low_thresh_calc, high_thresh_params, hist_data = high_thresh_data_extract(sample_data[t], sample[1], coll, t)
+                        high_thresh_data_list.append(high_thresh_results)
+                        '''sample_hist_info[t] = [[str(hd0) for hd0 in hist_data[0]], [str(hd1) for hd1 in hist_data[1]]] + \
+                                              [(str(p), str(k)) for p, k in list(high_thresh_params)] + [str(v) for v in list(high_thresh_params.values)]'''
                 if discrete_data:
                     blank = {"Group": "", "Sample": "", "T": "", "Normal": "", "Log": "", "Otsu": "", "Triangle": "", "Chosen": "",
                              "Otsu < Norm": "", "Log>Triangle": ""}
                     discrete_data_list.append(blank)
+                if high_thresh_data:
+                    blank1 = {"Group": "", "Sample": "", "T": "", "Low Thresh": "", "Power":"", "Steep":"", "High Thresh":""}
+                    high_thresh_data_list.append(blank1)
+                #print(sample_hist_info)
     if discrete_data:
         data_to_csv(list(discrete_data_list[0]), discrete_data_list, save_path, "Discrete_Only")
+    if high_thresh_data:
+        data_to_csv(list(high_thresh_data_list[0]), high_thresh_data_list, save_path, "High_Thresh")
 
 def discrete_data_extract(image_file, name, collection, T=0):
     __, normal_knee, ___ = testing_knee(image_file, log_hist=False, sensitivity=0.2)
@@ -1081,6 +1094,173 @@ def discrete_data_extract(image_file, name, collection, T=0):
                       "Chosen":normal_knee if otsu_thresh <= normal_knee else log_knee, "Otsu < Norm":otsu_thresh <= normal_knee,
                       "Log>Triangle":log_knee>triangle_thresh}
     return collected_data
+
+def high_thresh_data_extract(image_file, name, collection, T=0):
+    low_thresh = low_select(image_file)
+    triangle_thresh = float(threshold_triangle(image_file))
+    __, log_knee, ___ = testing_knee(image_file, log_hist=True, sensitivity=0.2)
+    if log_knee < triangle_thresh:
+        return None
+    else:
+        thresh_params = {}
+        intens, voxels = hysteresis_iterate_image(image_file, low_thresh)
+        intens = intens[:-1]
+        voxels = voxels[:-1]
+        slopes, slope_points = get_slope(intens, voxels)
+        window_size = 8
+        mving_slopes = rolling_average(slopes, window_size)
+        high_thresh_variations = {}
+        for p in [1, 1.5, 2]:
+            for k in [4, 6, 8, 10, 12, 14]:
+                high_thresh_val = determine_high_thresh(mving_slopes, voxels, p, k)
+                high_thresh_variations[(p, k)] = high_thresh_val + intens[0]
+        collected_data = {}
+        for key, val in high_thresh_variations.items():
+            collected_data = {"Group": collection, "Sample": name, "T": T, "Low Thresh": low_thresh, "Power":key[0], "Steep":key[1], "High Thresh":val}
+            thresh_params[(p, k)] = val
+        return collected_data, low_thresh, thresh_params, [intens, voxels]
+
+def determine_high_thresh(values, voxels=None, power=1, steepness=8):
+    max_val = math.ceil(max(values))
+    resized = 1
+    voxel_weights = []
+    if voxels is not None:
+        #This will be for a weighting to determine the percentage of structures thresholded at a specific high threshold
+        voxel_array = (np.array(voxels, dtype="int64")**power).tolist()
+        maximum_voxels = max(voxel_array)
+        for voxel in voxel_array[:-1]:
+            voxel_weights.append(voxel/maximum_voxels)
+    if max_val == 1:
+        smallest_gap = 1
+        for v in range(1, len(values)):
+            gap = abs(values[v-1] - values[v])
+            if gap < smallest_gap and gap != 0:
+                smallest_gap = gap
+        np_values = np.array(values)
+        max_val = math.ceil((np_values/smallest_gap).max())
+        resized = smallest_gap
+    logist = generate_sigmoid(max_val / 2, steepness)
+    '''plt.plot(np.linspace(0, len(logist), len(logist)), logist)
+    plt.show()'''
+    logist_rescaled = []
+    for dv in range(len(values)):
+        vald = values[dv] / resized
+        logist_rescaled.append(logist[int(vald)])
+    inner_knee = KneeLocator(np.linspace(0, len(logist_rescaled), len(logist_rescaled)), logist_rescaled, S=0.1, curve="convex", direction="decreasing")
+    knee = inner_knee.knee
+    values = values[int(knee):]
+    range_of_means1 = 0
+    for d in range(len(values), 0, -1):
+        sum_scaled = 0
+        for v in range(0, d):
+            val = values[v]/resized
+            weighted_val = v * logist[int(val)]
+            weight = logist[int(val)]
+            if voxels is not None:
+                weighted_val *= voxel_weights[v]
+                weight *= voxel_weights[v]
+            sum_scaled += weighted_val
+        new_mean = (sum_scaled/d)
+        range_of_means1 += new_mean
+    return (range_of_means1/len(logist_rescaled)) + int(knee)
+
+
+def generate_sigmoid(midpoint, k=10):
+    print("Calculating Sigmoid")
+    print(math.log(1, math.e)/k, 1/2)
+    k = k/(midpoint*2)
+    range_of_sig = []
+    #print(midpoint)
+    progress = 0
+    norm_y = []
+    '''for y_n in range(int(midpoint*2)):
+        norm_y.append((y_n/int(midpoint*2)*10))'''
+    try:
+        for y in range(int(midpoint*2)+1):
+            progress = y
+            #print(y-0.5)
+            sig = 1 / (1 + math.pow(math.e, k*(y-midpoint)))
+            #print(sig)
+            range_of_sig.append(sig)
+    except Exception as e:
+        print("Error: ", e)
+        print("Progress is: " + str((progress/int(midpoint*2))*100) + "%")
+    print(range_of_sig[0], range_of_sig[-1])
+    print("Number of sigmoid values:", len(range_of_sig), midpoint*2)
+    plt.plot(np.linspace(0, len(range_of_sig), len(range_of_sig)), range_of_sig, label="Logistic")
+    return range_of_sig
+
+def rolling_average(counts, window_size=10, rescale=False):
+    adjusted = False
+    if type(counts) is list and window_size > 1:
+        new_list = []
+        for n in range(0, int(window_size/2)):
+            new_list.append(0)
+        counts = new_list + counts + new_list
+        adjusted = True
+    df = pd.DataFrame(counts)
+    moving_average = df.rolling(window_size, center=True).mean()
+    average_results = flatten_list(iter(moving_average.values.tolist()))
+    if adjusted:
+        window_offset = int(window_size/2)
+        average_results = average_results[window_offset:-window_offset]
+        if rescale:
+            print("Prior to rescaling", average_results)
+            for i in range(1, window_offset+1):
+                average_results[i-1] = (average_results[i-1]*10)/i
+                average_results[-i] = (average_results[-i]*10)/i
+            print("Rescaled results", average_results)
+    return average_results
+
+def get_slope(x, y):
+    if len(x) != len(y):
+        print("Inconsistent x and y coordinates")
+        return None, None
+    else:
+        slope_values = []
+        for i in range(1, len(x), 1):
+            slope = abs((y[i] - y[i-1])/(x[i] - x[i-1]))
+            slope_values.append(slope)
+        #new_x = np.linspace(0, len(slope_values), len(slope_values))
+        new_x = x[1:]
+        return slope_values, new_x
+
+def flatten_list(nested_iter):
+    new_list = []
+    try:
+        current_value = next(nested_iter)
+        if type(current_value) is list:
+            sub_iter = iter(current_value)
+            new_list += flatten_list(sub_iter)
+            resumed_result = flatten_list(nested_iter)
+            if resumed_result is not None:
+                new_list += resumed_result
+        else:
+            new_list += [current_value]
+            next_value = flatten_list(nested_iter)
+            if next_value is None:
+                return new_list
+            else:
+                return new_list + next_value
+    except StopIteration:
+        return None
+    return new_list
+
+def hysteresis_iterate_image(img, low_thresh):
+    low = low_thresh
+    voxels_by_intensity, intensities = histogram(img)
+    low_index = np.where(intensities == low)[0][0]
+    intensities = intensities[low_index:]
+    voxels_per_high_thresh = []
+    template_compare_array = np.zeros_like(img)
+    intensity_list = []
+    for i in intensities:
+        intensity_list.append(int(i))
+        threshold_result = apply_hysteresis_threshold(img, low, i).astype('uint8')
+        number_of_voxels = threshold_result.sum()
+        template_compare_array = np.maximum(threshold_result*i, template_compare_array)
+        voxels_per_high_thresh.append(int(number_of_voxels))
+    return intensity_list, voxels_per_high_thresh
 
 def time_data_split(image_name, img_path, decon_path):
     """
@@ -1143,8 +1323,7 @@ if __name__ == "__main__":
     #start_time = time.process_time()
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\New Input data\\"]
     save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview2\\"
-    organise_data({"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1", "C:\\RESEARCH\\Mitophagy_data\\N2\\":"N2", "C:\\RESEARCH\\Mitophagy_data\\N3\\":"N3",
-                   "C:\\RESEARCH\\Mitophagy_data\\N4\\":"N4"})
+    organise_data({"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1"}, discrete_data=False)
     '''"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1", "C:\\RESEARCH\\Mitophagy_data\\N2\\":"N2", "C:\\RESEARCH\\Mitophagy_data\\N3\\":"N3",
                    "C:\\RESEARCH\\Mitophagy_data\\N4\\":"N4"'''
     '''"C:\\RESEARCH\\Mitophagy_data\\Sholto Data Crunch\\Mitophagy\\New n1\\":"New n1",
