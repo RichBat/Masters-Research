@@ -1018,7 +1018,7 @@ def check_sample_low(path, name):
     ax2.title.set_text("New Hist")
     plt.show()
 
-def data_to_csv(fields, data, save_path, save_name):
+def data_to_csv(fields, data, save_path, save_name, add=False):
     """
     This is a function to write the data to an easily readable csv file for reviewing
     :param fields: This will be the parameter fields for the different data points
@@ -1027,11 +1027,20 @@ def data_to_csv(fields, data, save_path, save_name):
     :param save_name: This will be the name of the storage csv file
     :return: None, the csv file will be saved
     """
-
-    with open(save_path + save_name + ".csv", 'w', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fields, dialect='excel')
-        writer.writeheader()
-        writer.writerows(data)
+    if add:
+        header = True
+        if isfile(save_path + save_name + ".csv"):
+            header = False
+        with open(save_path + save_name + ".csv", 'w+', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fields, dialect='excel')
+            if header:
+                writer.writeheader()
+            writer.writerows(data)
+    else:
+        with open(save_path + save_name + ".csv", 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fields, dialect='excel')
+            writer.writeheader()
+            writer.writerows(data)
 
 def organise_data(file_paths, discrete_data=True, high_thresh_data=True, relative_change_data=True, save_path="C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\"):
     """
@@ -1054,33 +1063,70 @@ def organise_data(file_paths, discrete_data=True, high_thresh_data=True, relativ
     discrete_data_list = []
     high_thresh_data_list = []
     relative_change_data_list = []
-    #print(files)
+    complete_hist_data = {}
     print("Discrete Data: " + str(discrete_data) + " High Thresh Data: " + str(high_thresh_data))
-    for coll, samples in files.items():
+    for coll in list(files):
+        samples = files[coll]
+        print("Collection:", coll)
         for sample in samples:
             sample_data = time_data_split(sample[1], sample[0] + "Preprocessed\\", sample[0] + "Deconvolved\\")
             sample_hist_info = {}
             if sample_data is not None:
+                print("Sample:", sample[1])
                 for t in range(len(sample_data)):
                     if discrete_data:
                         discrete_data_list.append(discrete_data_extract(sample_data[t], sample[1], coll, t))
                     if high_thresh_data:
-                        high_thresh_results, low_thresh_calc, high_thresh_params, hist_data = high_thresh_data_extract(sample_data[t], sample[1], coll, t)
-                        high_thresh_data_list.append(high_thresh_results)
-                        '''sample_hist_info[t] = [[str(hd0) for hd0 in hist_data[0]], [str(hd1) for hd1 in hist_data[1]]] + \
-                                              [(str(p), str(k)) for p, k in list(high_thresh_params)] + [str(v) for v in list(high_thresh_params.values)]'''
+                        high_thresh_results, low_thresh_calc, high_thresh_params, hist_data, valid = high_thresh_data_extract(sample_data[t], sample[1], coll,t)
+                        high_thresh_data_list.extend(high_thresh_results)
+                        #iteration_results = [[str(g[0]), str(g[1]), str(v)] for g, v in high_thresh_params.items()]
+                        print("Iterated Data:", high_thresh_params)
+                        yen_value = threshold_yen(sample_data[t])
+                        centr = str(centroid(hist_data[1], hist_data[0]))
+                        hist_info_t = {"Intens":[str(hd0) for hd0 in hist_data[0]], "Voxels":[str(hd1) for hd1 in hist_data[1]], "Yen":str(yen_value),
+                                       "Centroid":centr, "results":high_thresh_params, "Valid":str(int(valid))}
+                        sample_hist_info[t] = hist_info_t
                 if discrete_data:
                     blank = {"Group": "", "Sample": "", "T": "", "Normal": "", "Log": "", "Otsu": "", "Triangle": "", "Chosen": "",
                              "Otsu < Norm": "", "Log>Triangle": ""}
                     discrete_data_list.append(blank)
                 if high_thresh_data:
-                    blank1 = {"Group": "", "Sample": "", "T": "", "Low Thresh": "", "Power":"", "Steep":"", "High Thresh":""}
+                    blank1 = {"Group": "", "Sample": "", "T": "", "Low Thresh": "", "Power":"", "Steep":"", "High Thresh":"", "Valid":""}
                     high_thresh_data_list.append(blank1)
+                    complete_hist_data[sample[1]] = sample_hist_info
+                    sample_hist_info = {}
                 #print(sample_hist_info)
-    if discrete_data:
-        data_to_csv(list(discrete_data_list[0]), discrete_data_list, save_path, "Discrete_Only")
-    if high_thresh_data:
-        data_to_csv(list(high_thresh_data_list[0]), high_thresh_data_list, save_path, "High_Thresh")
+        if discrete_data:
+            data_to_csv(list(discrete_data_list[0]), discrete_data_list, save_path, coll + "Discrete_Only")
+            data_to_csv(list(discrete_data_list[0]), discrete_data_list, save_path, "Discrete_Only", True)
+        if high_thresh_data:
+            data_to_csv(list(high_thresh_data_list[0]), high_thresh_data_list, save_path, coll + "High_Thresh")
+            data_to_csv(list(high_thresh_data_list[0]), high_thresh_data_list, save_path, "High_Thresh", True)
+            print("WRITING TO JSON")
+            with open("C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\HighHystHistInfo.json", 'w') as j:
+                json.dump(complete_hist_data, j)
+            print("FINISHED WRITING")
+
+def centroid(y, x=None, weights=None):
+    if weights is None:
+        max_y = max(y)
+        weighting = []
+        for w in y:
+            weighting.append(w/max_y)
+    else:
+        weighting = weights
+
+    if x is None:
+        x_axis = np.linspace(0, len(y), len(y))
+    else:
+        x_axis = x
+    dtf = []
+    denom = []
+    for n in range(len(weighting)):
+        dtf.append(x_axis[n] * weighting[n])
+        denom.append(weighting[n])
+    centr = sum(dtf)/sum(denom)
+    return centr
 
 def discrete_data_extract(image_file, name, collection, T=0):
     __, normal_knee, ___ = testing_knee(image_file, log_hist=False, sensitivity=0.2)
@@ -1099,26 +1145,27 @@ def high_thresh_data_extract(image_file, name, collection, T=0):
     low_thresh = low_select(image_file)
     triangle_thresh = float(threshold_triangle(image_file))
     __, log_knee, ___ = testing_knee(image_file, log_hist=True, sensitivity=0.2)
+    valid = True
     if log_knee < triangle_thresh:
-        return None
-    else:
-        thresh_params = {}
-        intens, voxels = hysteresis_iterate_image(image_file, low_thresh)
-        intens = intens[:-1]
-        voxels = voxels[:-1]
-        slopes, slope_points = get_slope(intens, voxels)
-        window_size = 8
-        mving_slopes = rolling_average(slopes, window_size)
-        high_thresh_variations = {}
-        for p in [1, 1.5, 2]:
-            for k in [4, 6, 8, 10, 12, 14]:
-                high_thresh_val = determine_high_thresh(mving_slopes, voxels, p, k)
-                high_thresh_variations[(p, k)] = high_thresh_val + intens[0]
-        collected_data = {}
-        for key, val in high_thresh_variations.items():
-            collected_data = {"Group": collection, "Sample": name, "T": T, "Low Thresh": low_thresh, "Power":key[0], "Steep":key[1], "High Thresh":val}
-            thresh_params[(p, k)] = val
-        return collected_data, low_thresh, thresh_params, [intens, voxels]
+        valid = False
+    intens, voxels = hysteresis_iterate_image(image_file, low_thresh)
+    intens = intens[:-1]
+    voxels = voxels[:-1]
+    slopes, slope_points = get_slope(intens, voxels)
+    window_size = 8
+    mving_slopes = rolling_average(slopes, window_size)
+    high_thresh_variations = {}
+    for p in [1, 1.5, 2]:
+        for k in [4, 6, 8, 10, 12, 14]:
+            high_thresh_val = determine_high_thresh(mving_slopes, voxels, p, k)
+            high_thresh_variations[(str(p), str(k))] = str(high_thresh_val + intens[0])
+    collected_data = []
+    string_key_version = {}
+    for key, val in high_thresh_variations.items():
+        collected_data.append({"Group": collection, "Sample": name, "T": T, "Low Thresh": low_thresh, "Power":key[0], "Steep":key[1], "High Thresh":val,
+                               "Valid":valid})
+        string_key_version[str(key[0]) + " " + str(key[1])] = val
+    return collected_data, low_thresh, string_key_version, [intens, voxels], valid
 
 def determine_high_thresh(values, voxels=None, power=1, steepness=8):
     max_val = math.ceil(max(values))
@@ -1323,7 +1370,7 @@ if __name__ == "__main__":
     #start_time = time.process_time()
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\New Input data\\"]
     save_path = "C:\\RESEARCH\\Mitophagy_data\\HysteresisPreview2\\"
-    organise_data({"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1"}, discrete_data=False)
+    organise_data({"C:\\RESEARCH\\Mitophagy_data\\N3\\":"N3", "C:\\RESEARCH\\Mitophagy_data\\N4\\":"N4"}, discrete_data=False)
     '''"C:\\RESEARCH\\Mitophagy_data\\N1\\":"N1", "C:\\RESEARCH\\Mitophagy_data\\N2\\":"N2", "C:\\RESEARCH\\Mitophagy_data\\N3\\":"N3",
                    "C:\\RESEARCH\\Mitophagy_data\\N4\\":"N4"'''
     '''"C:\\RESEARCH\\Mitophagy_data\\Sholto Data Crunch\\Mitophagy\\New n1\\":"New n1",

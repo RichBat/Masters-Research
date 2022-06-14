@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import skimage.draw as draw
 import math
 from skimage import io
+from skimage.filters import gaussian
 """
 To do:
 - test sub functions such as: 
@@ -479,7 +480,8 @@ class synth_data_gen:
             print(volume_branches)
             volume_generate = self.volume_generation(volume_branches, int(branch_length)/3, 15, 20)
             #temp_image = np.zeros_like(self.synthetic_image)
-            io.imshow(volume_generate)
+            blurred_image = gaussian(volume_generate)
+            io.imshow(blurred_image)
             plt.show()
 
 if __name__ == "__main__":
