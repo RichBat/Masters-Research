@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-csv_file = "C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\N1High_Thresh.csv"
+csv_file = "C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\High_Thresh.csv"
 
 def between_variation(x):
     per_sample = {}
@@ -34,6 +34,12 @@ def between_variation(x):
 if __name__ == "__main__":
     df = pd.read_csv(csv_file)
     df = df.dropna()
+    if 'Valid' in list(df.columns):
+        '''grouped_valid = df.groupby('Valid')
+        for key, item in grouped_valid:
+            print(grouped_valid.get_group(key), "\n\n")'''
+        df = df.drop(df[df['Valid'] == False].index)
+        df = df.drop(columns=['Valid'])
     categories1 = list(df.columns)
     categories1.remove('Steep')
     categories1.remove('High Thresh')
@@ -49,7 +55,7 @@ if __name__ == "__main__":
         test = list(index[:-1]) + [index[-1]]
         print(tuple(test))
         print("Values", value)'''
-    specific_output = steep_data.loc[('N1', 'CCCP+BafC=0.tif', 0.0, 24.0)]
+    #specific_output = steep_data.loc[('N1', 'CCCP+BafC=0.tif', 0.0, 24.0)]
     '''for index, value in specific_output.items():
         print("Index:", index)
         print("Values:", value)
