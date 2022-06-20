@@ -480,8 +480,9 @@ class synth_data_gen:
             coord_values[coords[c]] = values[c] if coords[c] not in coord_values else max(coord_values[coords[c]], values[c])
         return coord_values
 
-    def complex_structures(self, core_centre, core_rot, core_length, core_peak, core_scaling, core_branch_num, second_centre, second_len, second_perp=True,
-                           second_angle=0, second_pattern=None, second_scaling=None, **kwargs):
+    def complex_structures(self, core_centre, core_length, core_peak, core_scaling, core_branch_num, second_centre, second_branch_num,
+                           second_len, second_peak, second_kwargs, core_rot=0, second_perp=True, second_angle=0, second_pattern=None, second_scaling=4,
+                           second_len_ratio=False, **kwargs):
         """
         This method will generate complex structures with branches centred on other branches.
         :param core_centre: The centre of the core structure
@@ -497,15 +498,87 @@ class synth_data_gen:
         :param second_pattern:
         :param second_scaling: The scaling of the secondary structures. An integer or a list of integers where each element will relate to the corresponding
         depth of secondary structure.
+        :param second_len_ratio:
         :param kwargs: These will relate to specified scaling type parameters
         :return:
         """
 
         core_branches, core_angles = self.create_angled_structures(core_centre, core_length, core_peak, core_scaling, core_branch_num, core_rot, **kwargs)
-        
+        further_structures = self.secondary_structures(core_centre, core_branch_num, core_length, core_angles, second_centre, second_branch_num, second_len,
+                                                       second_angle, second_perp, second_peak, second_scaling, second_kwargs)
+        complete_structure = self.combine_structures(further_structures, core_branches)
+        return complete_structure
 
+    def secondary_structures(self, parent_centre, parent_branch_num, parent_len, parent_child_angles, centre_ratio, child_num, child_len,
+                             child_angle, child_perp, child_peak, child_scaling, set_of_scaling_kwargs):
+        """
+        This method is a recursive method to generate child structures. This is not a very efficient implementation of this idea but this is for
+        testing functionality
+        :param parent_centre:
+        :param parent_branch_num:
+        :param parent_len:
+        :param parent_child_angles:
+        :param centre_ratio:
+        :param child_num:
+        :param child_len:
+        :param child_angle:
+        :param child_perp:
+        :param child_peak:
+        :param child_scaling:
+        :param set_of_scaling_kwargs:
+        :return:
+        """
+        child_centre_ratio, centre_ratio = self.check_if_list(centre_ratio)
+        child_branch_len, child_len = self.check_if_list(child_len)
+        child_branch_num, child_num = self.check_if_list(child_num)
+        child_branch_peak, child_peak = self.check_if_list(child_peak)
+        child_branch_scaling, child_scaling = self.check_if_list(child_scaling)
+        child_branch_angle, child_angle = self.check_if_list(child_angle)
+        nesting = child_centre_ratio != centre_ratio, child_branch_len != child_len or child_branch_num != child_num or child_branch_peak != child_peak or child_branch_scaling != child_scaling or child_branch_angle != child_angle
+        scaling_kwargs = set_of_scaling_kwargs[0]
+
+        if len(set_of_scaling_kwargs) > 1:
+            set_of_scaling_kwargs = set_of_scaling_kwargs[1:]
+        all_branch_structures = {}
+        for pbn in range(parent_branch_num):
+            relative_angle = parent_child_angles[pbn]
+            child_centre = self.position_of_second(parent_centre, parent_len, child_centre_ratio, relative_angle)
+            print("Parent Centre:", parent_centre)
+            print("Child Centre:", child_centre)
+            print("Child Centreing", child_centre_ratio)
+            act_child_angle = child_branch_angle
+            if child_perp:
+                act_child_angle += self.perpend_struct(parent_centre, child_centre)
+            child_structures, child_angles = self.create_angled_structures(child_centre, int(child_branch_len), child_branch_peak, child_branch_scaling,
+                                                                           child_branch_num, act_child_angle, **scaling_kwargs)
+            if nesting:
+                deeper_branches = self.secondary_structures(child_centre_ratio, child_branch_num, int(child_branch_len), child_angles, centre_ratio, child_num,
+                                                            child_len, child_angle, child_perp, child_peak, child_scaling, set_of_scaling_kwargs)
+                child_structures = self.combine_structures(deeper_branches, child_structures)
+            all_branch_structures = self.combine_structures(all_branch_structures, child_structures)
+        return all_branch_structures
+
+    def combine_structures(self, structures_a, structures_b):
+        for key in list(structures_b):
+            if structures_a.get(key) is not None:
+                structures_a[key] = structures_b[key] if structures_b[key] > structures_a[key] else structures_a[key]
+            else:
+                structures_a[key] = structures_b[key]
+        return structures_a
+
+    def check_if_list(self, list_parameter):
+        if type(list_parameter) is list:
+            used_list_parameter = list_parameter[0]
+            if len(list_parameter) > 1:
+                list_parameter = list_parameter[1:]
+            else:
+                list_parameter = list_parameter[0]
+        else:
+            used_list_parameter = list_parameter
+        return used_list_parameter, list_parameter
 
     def perpend_struct(self, primary_centre, current_centre):
+        print("Centres:", primary_centre, current_centre)
         change_x = abs(primary_centre[0] - current_centre[0])
         change_y = abs(primary_centre[1] - current_centre[1])
         if change_y == 0:
@@ -516,10 +589,11 @@ class synth_data_gen:
         return angle_diff
 
     def position_of_second(self, primary_centre, primary_len, ratio, angle_of_branch):
-        secondary_dist = primary_len/ratio
-        second_x = int(math.sin(angle_of_branch)*secondary_dist)
-        second_y = int(math.cos(angle_of_branch)*secondary_dist)
-        return tuple(second_x, second_y)
+        print("Primary Centre:", primary_centre)
+        secondary_dist = primary_len*ratio
+        second_x = primary_centre[0] + int(math.sin(angle_of_branch)*secondary_dist)
+        second_y = primary_centre[1] + int(math.cos(angle_of_branch)*secondary_dist)
+        return tuple([second_x, second_y])
 
 
     def test_function(self, excluded_tests = []):
@@ -612,7 +686,17 @@ class synth_data_gen:
             smoothed_image = gaussian(angled_volumes, 10)
             io.imshow(smoothed_image)
             plt.show()'''
+        if 5 not in excluded_tests:
+            #Complex Structure Test
+            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=4, second_centre=0.5, second_branch_num=2,
+                                                            second_len=branch_length/4, second_peak=170, second_kwargs=[{"Steepness":3}])
+            indexes = [list(tkeys) for tkeys in list(complex_branch_struct.keys())]
+            values = [tvals for tvals in list(complex_branch_struct.values())]
+            temp_image = np.zeros_like(self.synthetic_image)
+            temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+            io.imshow(temp_image)
+            plt.show()
 
 if __name__ == "__main__":
     branch_test = synth_data_gen("", (1024, 1024))
-    branch_test.test_function([0, 1, 2, 3])
+    branch_test.test_function([0, 1, 2, 3, 4])
