@@ -30,7 +30,7 @@ class synth_data_gen:
         self.original_shape = original_size
         self.synthetic_image = np.zeros(shape=original_size)
 
-    def volume_generation(self, branches, slope, thickness=10, offset_value=0):
+    def volume_generation(self, branches, slope, thickness=10):
         """
         This function will generate linearly decaying volume around a branch. The noise must starkly drop and then plateau outward for x positions.
         This will be linear or inversely exponential for the moment. This might be generated using a normal distribution in future
@@ -41,9 +41,8 @@ class synth_data_gen:
         :return: The coordinates with the determined noise values
         """
         #What if the average of surrounding pixels values is weighted by some decaying curve which decreases as the pixel gets further from the structure centre?
-        sigma = slope
-        estimate_width = int(
-        math.ceil(3 * math.sqrt(sigma) + offset_value))  # This will return the integer greater than or equal. Therefore 3*math.sqrt(sigma) = 2.2 becomes 3.0
+        estimate_width = thickness/0.997
+        sigma = estimate_width/(3+slope)
         bins = np.linspace(0, int(thickness/2)+2, int(thickness/2)+2)
         mu = 0
         dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
@@ -165,6 +164,60 @@ class synth_data_gen:
         else:
             return False
 
+    def create_angled_structures(self, centre, branch_length, peak_value, scaling_type, branch_count=2, angle=0, noise_offset=0, **kwargs):
+        print("Branch Length:", branch_length)
+        branches, branch_angles = self.generate_line_branch(centre, branch_length-1, branch_count, angle)
+        structures = self.create_branch_structure(branches, branch_length, peak_value, scaling_type, noise_offset, **kwargs)
+        return structures, branch_angles
+
+    def generate_line_branch(self, centre, branch_length, branch_count=2, angle=0):
+        """
+        This method will generate a line branch by default but can be used to generate equilateral branches around a centre. An angle can be provided to
+        rotate the branch
+        :param centre: tuple of the centre coordinates
+        :type centre: tuple of ints
+        :param branch_length: The length of the branches. If a list of int are provided then the lengths of each will differ and are determined clockwise.
+        If centred on an axis then the starting branch will be x=0 y>0 before rotation
+        :type branch_length: Int or list of int
+        :param branch_count: The number of branches to generate
+        :type branch_count: int
+        :param angle: The angle of rotation for the branches and it is determined relative to the starting branch. This will be in degrees
+        :return: A set of coordinates for all of the branches. There is a set of coordinates for each branch
+        :rtype: A nested list of int tuples
+        """
+        if branch_count <= 0:
+            branch_count = 1
+        y_range = (0, self.original_shape[1] - 1)
+        x_range = (0, self.original_shape[0] - 1)
+        angle_between_branches = 360/branch_count
+        branches = []
+        branch_angles = []
+        print("Centre", centre)
+        for b in range(branch_count):
+            branch_angles.append(angle+angle_between_branches*b)
+            rotate_x, rotate_y = self.rotated_angle(angle+angle_between_branches*b, branch_length)
+            print(rotate_x, rotate_y)
+            branch_end = (int(centre[0] + rotate_x), int(centre[1] + rotate_y))
+            print("Branch Coordinates for", b, ":", branch_end)
+            branch_y, branch_x = draw.line(centre[1], centre[0], branch_end[1], branch_end[0])
+            complete_branch = []
+            if len(branch_y) != len(branch_x):
+                print("Mismatched Sizes")
+            for c in range(len(branch_y)):
+                if 0 <= branch_y[c] <= self.original_shape[1] - 1 and 0 <= branch_x[c] <= self.original_shape[0] - 1:
+                    complete_branch.append((branch_y[c], branch_x[c]))
+            branches.append(complete_branch)
+        return branches, branch_angles
+
+    def rotated_angle(self, angle, length, current_coords=None):
+        if current_coords is None:
+            current_coords = (0, length)
+        distance = math.sqrt(current_coords[0]**2 + current_coords[1]**2)
+        rad_angle = math.radians(angle)
+        new_x = math.sin(rad_angle)*distance
+        new_y = math.cos(rad_angle)*distance*-1
+        return new_x, new_y
+
     def generate_branches(self, centre, branch_length, thickness=1, diagonal=False):
         """
         This method will generate a cross-shaped structure of value 1
@@ -228,11 +281,27 @@ class synth_data_gen:
 
         return branches
 
-    def create_branch_structure(self, centre, branch_length, peak_value, scaling_type, noise_offset=0, diagonal=False, **kwargs):
+    def create_cross_structure(self, centre, branch_length, peak_value, scaling_type, noise_offset=0, diagonal=False, **kwargs):
+        """
+        This method creates specifically cross shaped branch structures
+        :param centre:
+        :param branch_length:
+        :param peak_value:
+        :param scaling_type:
+        :param noise_offset:
+        :param diagonal:
+        :param kwargs:
+        :return:
+        """
+        branches = self.generate_branches(centre, branch_length - 1, diagonal=diagonal)
+        branched_structure = self.create_branch_structure(branches, branch_length, peak_value, scaling_type, noise_offset, **kwargs)
+        return branched_structure
+
+    def create_branch_structure(self, branches, branch_length, peak_value, scaling_type, noise_offset=0, **kwargs):
         """
         Function to generate a branch structure with values decreasing across branch. Different scaling methods can be chosen from logarithmic, exponential
         fixed or a provided pattern.
-        :param centre: The coordinates of the centre of the branch structure being created
+        :param branches: The coordinates of the branches to be scaled
         :param branch_length: The length of the branches along the branch structure
         :param peak_value: The maximum brightness originating from the centre of the branch
         :param scaling_type: The type of scaling to be used
@@ -247,7 +316,6 @@ class synth_data_gen:
         :rtype: Dict with tuple key and int value
         """
 
-        branches = self.generate_branches(centre, branch_length-1, diagonal=diagonal)
         scaled_branches = {}
         for branch in branches:
             if scaling_type == 0 and "steepness" in kwargs:
@@ -374,6 +442,12 @@ class synth_data_gen:
             step += 1
         return branch_values
 
+    def branch_cap2(self, branch_line):
+        y_min_max = [0, self.original_shape]
+        x_min_max = [0, self.original_shape]
+
+
+
     def branch_cap(self, coord, y_range, x_range, orient):
         x_coord = coord[0]
         y_coord = coord[1]
@@ -406,6 +480,48 @@ class synth_data_gen:
             coord_values[coords[c]] = values[c] if coords[c] not in coord_values else max(coord_values[coords[c]], values[c])
         return coord_values
 
+    def complex_structures(self, core_centre, core_rot, core_length, core_peak, core_scaling, core_branch_num, second_centre, second_len, second_perp=True,
+                           second_angle=0, second_pattern=None, second_scaling=None, **kwargs):
+        """
+        This method will generate complex structures with branches centred on other branches.
+        :param core_centre: The centre of the core structure
+        :param core_rot: The angle rotation of the core structure
+        :param core_length: The length of the branches of the core structure
+        :param core_scaling: The scaling type of the core structure
+        :param second_centre: The centre of the secondary structures. This will be a percentage for how far along the core branch the secondary structure will
+        be positioned. If this is type list then the first list will be for the secondary structures. If this contains nested lists then each depth will be
+        for further secondary structures
+        :param second_len:
+        :param second_perp:
+        :param second_angle:
+        :param second_pattern:
+        :param second_scaling: The scaling of the secondary structures. An integer or a list of integers where each element will relate to the corresponding
+        depth of secondary structure.
+        :param kwargs: These will relate to specified scaling type parameters
+        :return:
+        """
+
+        core_branches, core_angles = self.create_angled_structures(core_centre, core_length, core_peak, core_scaling, core_branch_num, core_rot, **kwargs)
+        
+
+
+    def perpend_struct(self, primary_centre, current_centre):
+        change_x = abs(primary_centre[0] - current_centre[0])
+        change_y = abs(primary_centre[1] - current_centre[1])
+        if change_y == 0:
+            angle_alpha = 90
+        else:
+            angle_alpha = math.degrees(math.atan(change_x/change_y))
+        angle_diff = 90-angle_alpha
+        return angle_diff
+
+    def position_of_second(self, primary_centre, primary_len, ratio, angle_of_branch):
+        secondary_dist = primary_len/ratio
+        second_x = int(math.sin(angle_of_branch)*secondary_dist)
+        second_y = int(math.cos(angle_of_branch)*secondary_dist)
+        return tuple(second_x, second_y)
+
+
     def test_function(self, excluded_tests = []):
         middle = (int(self.original_shape[0]/2), int(self.original_shape[1]/2))
         peak, branch_length = int(self.original_shape[0] / 4), int(self.original_shape[0] / 4)
@@ -414,13 +530,13 @@ class synth_data_gen:
             for case in [0, 1, 2, 3]:
                 try:
                     if case == 0:
-                        test_branches[0] = self.create_branch_structure(middle, branch_length, peak, 0, steepness=15)
+                        test_branches[0] = self.create_cross_structure(middle, branch_length, peak, 0, steepness=15)
                     elif case == 1:
-                        test_branches[1] = self.create_branch_structure(middle, branch_length, peak, 1, shallowness=20)
+                        test_branches[1] = self.create_cross_structure(middle, branch_length, peak, 1, shallowness=20)
                     elif case == 2:
-                        test_branches[2] = self.create_branch_structure(middle, branch_length, peak, 2, pattern=[6, 4, 3, 1, 2, 3])
+                        test_branches[2] = self.create_cross_structure(middle, branch_length, peak, 2, pattern=[6, 4, 3, 1, 2, 3])
                     else:
-                        test_branches[3] = self.create_branch_structure(middle, branch_length, peak, 3, decay=1.5, stepsize=3)
+                        test_branches[3] = self.create_cross_structure(middle, branch_length, peak, 3, decay=1.5, stepsize=3)
                 except Exception as e:
                     print("#######################################################")
                     print(e)
@@ -437,7 +553,7 @@ class synth_data_gen:
         if 1 not in excluded_tests:
             try:
                 off_center = (int(self.original_shape[0] / 6), int(self.original_shape[1] / 6))
-                off_center_branch = self.create_branch_structure(off_center, branch_length, peak, 3, stepsize=2)
+                off_center_branch = self.create_cross_structure(off_center, branch_length, peak, 3, stepsize=2)
                 indexes = [list(tkeys) for tkeys in list(off_center_branch.keys())]
                 values = [tvals for tvals in list(off_center_branch.values())]
                 temp_image = np.zeros_like(self.synthetic_image)
@@ -453,7 +569,7 @@ class synth_data_gen:
         if 2 not in excluded_tests:
             # Diagonal Test
             try:
-                diag_branches = self.create_branch_structure(middle, branch_length, peak, 3, stepsize=2, diagonal=True)
+                diag_branches = self.create_cross_structure(middle, branch_length, peak, 3, stepsize=2, diagonal=True)
                 indexes = [list(tkeys) for tkeys in list(diag_branches.keys())]
                 values = [tvals for tvals in list(diag_branches.values())]
                 temp_image = np.zeros_like(self.synthetic_image)
@@ -469,7 +585,7 @@ class synth_data_gen:
         if 3 not in excluded_tests:
             # Volume Test
             print("Centre", middle)
-            volume_branches = self.create_branch_structure(middle, branch_length, 255, 0, steepness=1, stepsize=1, diagonal=False)
+            volume_branches = self.create_cross_structure(middle, branch_length, 255, 0, steepness=1, stepsize=1, diagonal=True)
             indexes = [list(tkeys) for tkeys in list(volume_branches.keys())]
             values = [tvals for tvals in list(volume_branches.values())]
             temp_image = np.zeros_like(self.synthetic_image)
@@ -478,12 +594,25 @@ class synth_data_gen:
             io.imshow(temp_image)
             plt.show()
             print(volume_branches)
-            volume_generate = self.volume_generation(volume_branches, int(branch_length)/3, 15, 20)
+            volume_generate = self.volume_generation(volume_branches, 0, 50)
             #temp_image = np.zeros_like(self.synthetic_image)
-            blurred_image = gaussian(volume_generate)
+            blurred_image = gaussian(volume_generate, 10)
             io.imshow(blurred_image)
             plt.show()
+        if 4 not in excluded_tests:
+            # Rotated Branches Test
+            angle_branch_struct = self.create_angled_structures(middle, branch_length, 255, 0, branch_count=3, angle=90, steepness=1, stepsize=1)
+            indexes = [list(tkeys) for tkeys in list(angle_branch_struct.keys())]
+            values = [tvals for tvals in list(angle_branch_struct.values())]
+            temp_image = np.zeros_like(self.synthetic_image)
+            temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+            io.imshow(temp_image)
+            plt.show()
+            '''angled_volumes = self.volume_generation(angle_branch_struct, 0, 50)
+            smoothed_image = gaussian(angled_volumes, 10)
+            io.imshow(smoothed_image)
+            plt.show()'''
 
 if __name__ == "__main__":
-    branch_test = synth_data_gen("", (80, 80))
-    branch_test.test_function([0, 1, 2])
+    branch_test = synth_data_gen("", (1024, 1024))
+    branch_test.test_function([0, 1, 2, 3])
