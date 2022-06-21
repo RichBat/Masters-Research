@@ -192,13 +192,13 @@ class synth_data_gen:
         angle_between_branches = 360/branch_count
         branches = []
         branch_angles = []
-        print("Centre", centre)
+        #print("Centre", centre)
         for b in range(branch_count):
-            branch_angles.append(angle+angle_between_branches*b)
+            branch_angles.append(angle_between_branches-angle+angle_between_branches*b)
             rotate_x, rotate_y = self.rotated_angle(angle+angle_between_branches*b, branch_length)
-            print(rotate_x, rotate_y)
+            #print(rotate_x, rotate_y)
             branch_end = (int(centre[0] + rotate_x), int(centre[1] + rotate_y))
-            print("Branch Coordinates for", b, ":", branch_end)
+            #print("Branch Coordinates for", b, ":", branch_end)
             branch_y, branch_x = draw.line(centre[1], centre[0], branch_end[1], branch_end[0])
             complete_branch = []
             if len(branch_y) != len(branch_x):
@@ -504,13 +504,14 @@ class synth_data_gen:
         """
 
         core_branches, core_angles = self.create_angled_structures(core_centre, core_length, core_peak, core_scaling, core_branch_num, core_rot, **kwargs)
+        print("Angles:", core_angles)
         further_structures = self.secondary_structures(core_centre, core_branch_num, core_length, core_angles, second_centre, second_branch_num, second_len,
                                                        second_angle, second_perp, second_peak, second_scaling, second_kwargs)
         complete_structure = self.combine_structures(further_structures, core_branches)
         return complete_structure
 
     def secondary_structures(self, parent_centre, parent_branch_num, parent_len, parent_child_angles, centre_ratio, child_num, child_len,
-                             child_angle, child_perp, child_peak, child_scaling, set_of_scaling_kwargs):
+                             child_angle, child_perp, child_peak, child_scaling, set_of_scaling_kwargs, depth=0):
         """
         This method is a recursive method to generate child structures. This is not a very efficient implementation of this idea but this is for
         testing functionality
@@ -528,35 +529,66 @@ class synth_data_gen:
         :param set_of_scaling_kwargs:
         :return:
         """
+        print("Looking for deeper structures")
         child_centre_ratio, centre_ratio = self.check_if_list(centre_ratio)
         child_branch_len, child_len = self.check_if_list(child_len)
         child_branch_num, child_num = self.check_if_list(child_num)
         child_branch_peak, child_peak = self.check_if_list(child_peak)
         child_branch_scaling, child_scaling = self.check_if_list(child_scaling)
         child_branch_angle, child_angle = self.check_if_list(child_angle)
-        nesting = child_centre_ratio != centre_ratio, child_branch_len != child_len or child_branch_num != child_num or child_branch_peak != child_peak or child_branch_scaling != child_scaling or child_branch_angle != child_angle
+        '''print("Check:", child_centre_ratio != centre_ratio, child_branch_len != child_len, child_branch_num != child_num, child_branch_peak != child_peak,
+              child_branch_scaling != child_scaling, child_branch_angle != child_angle)
+        print("Match check:")
+        print(child_centre_ratio, centre_ratio)
+        print(child_branch_len, child_len)
+        print(child_branch_num, child_num)
+        print(child_branch_peak, child_peak)
+        print(child_branch_scaling, child_scaling)
+        print(child_branch_angle, child_angle)'''
+        print("Child Angle:", child_angle)
+        nesting = child_centre_ratio != centre_ratio or child_branch_len != child_len or child_branch_num != child_num or child_branch_peak != child_peak or child_branch_scaling != child_scaling or child_branch_angle != child_angle
+        #print("Nesting:", nesting)
         scaling_kwargs = set_of_scaling_kwargs[0]
-
+        #print("Depth:", depth)
         if len(set_of_scaling_kwargs) > 1:
             set_of_scaling_kwargs = set_of_scaling_kwargs[1:]
         all_branch_structures = {}
         for pbn in range(parent_branch_num):
+            #print("Branch number:", pbn)
             relative_angle = parent_child_angles[pbn]
             child_centre = self.position_of_second(parent_centre, parent_len, child_centre_ratio, relative_angle)
-            print("Parent Centre:", parent_centre)
-            print("Child Centre:", child_centre)
-            print("Child Centreing", child_centre_ratio)
+            #print("Child Centre:", child_centre)
             act_child_angle = child_branch_angle
             if child_perp:
                 act_child_angle += self.perpend_struct(parent_centre, child_centre)
-            child_structures, child_angles = self.create_angled_structures(child_centre, int(child_branch_len), child_branch_peak, child_branch_scaling,
-                                                                           child_branch_num, act_child_angle, **scaling_kwargs)
+                print("Right angle:", self.within_right_angle(relative_angle))
+                #act_child_angle = relative_angle + 90
+            print("Relative Angle:", act_child_angle, "Child Angle:", child_branch_angle, "Parent Angle:", parent_child_angles[pbn])
+            child_structures, child_angles = self.create_angled_structures(child_centre, int(child_branch_len*parent_len), child_branch_peak,
+                                                                           child_branch_scaling, child_branch_num, act_child_angle, **scaling_kwargs)
             if nesting:
-                deeper_branches = self.secondary_structures(child_centre_ratio, child_branch_num, int(child_branch_len), child_angles, centre_ratio, child_num,
-                                                            child_len, child_angle, child_perp, child_peak, child_scaling, set_of_scaling_kwargs)
+                print("Given Angles:", child_angles)
+                deeper_branches = self.secondary_structures(child_centre, child_branch_num, int(child_branch_len*parent_len), child_angles, centre_ratio,
+                                                            child_num, child_len, child_angle, child_perp, child_peak, child_scaling, set_of_scaling_kwargs,
+                                                            depth+1)
                 child_structures = self.combine_structures(deeper_branches, child_structures)
+            #print(child_structures)
+            '''indexes = [list(tkeys) for tkeys in list(child_structures.keys())]
+            values = [tvals for tvals in list(child_structures.values())]
+            temp_image = np.zeros_like(self.synthetic_image)
+            temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
+            io.imshow(temp_image)
+            plt.show()'''
             all_branch_structures = self.combine_structures(all_branch_structures, child_structures)
+            #print(all_branch_structures)
         return all_branch_structures
+
+    def within_right_angle(self, angle):
+        if angle > 270:
+            angle -= 180
+        elif angle > 180:
+            angle -= 180
+        return angle
 
     def combine_structures(self, structures_a, structures_b):
         for key in list(structures_b):
@@ -577,22 +609,28 @@ class synth_data_gen:
             used_list_parameter = list_parameter
         return used_list_parameter, list_parameter
 
-    def perpend_struct(self, primary_centre, current_centre):
+    def perpend_struct(self, primary_centre, current_centre, parent_branch_angle=0):
         print("Centres:", primary_centre, current_centre)
-        change_x = abs(primary_centre[0] - current_centre[0])
-        change_y = abs(primary_centre[1] - current_centre[1])
+        change_x = primary_centre[0] - current_centre[0]
+        change_y = primary_centre[1] - current_centre[1]
+        print("Dist", math.sqrt((primary_centre[0] - current_centre[0])**2 + (primary_centre[1] - current_centre[1])**2))
+        #print(change_x, change_y)
         if change_y == 0:
             angle_alpha = 90
         else:
             angle_alpha = math.degrees(math.atan(change_x/change_y))
-        angle_diff = 90-angle_alpha
+        print("Angle Alpha:", angle_alpha)
+        angle_diff = 270-angle_alpha+parent_branch_angle
         return angle_diff
 
     def position_of_second(self, primary_centre, primary_len, ratio, angle_of_branch):
-        print("Primary Centre:", primary_centre)
+        print("Angle:", angle_of_branch)
         secondary_dist = primary_len*ratio
-        second_x = primary_centre[0] + int(math.sin(angle_of_branch)*secondary_dist)
-        second_y = primary_centre[1] + int(math.cos(angle_of_branch)*secondary_dist)
+        print("Hypo Dist:", secondary_dist)
+        second_y = int(primary_centre[1] - math.cos(math.radians(angle_of_branch))*secondary_dist)
+        second_x = int(primary_centre[0] - math.sin(math.radians(angle_of_branch))*secondary_dist)
+        print("New Centre:", second_x, second_y)
+        print("Angle Distances:", math.sin(math.radians(angle_of_branch)) * secondary_dist, math.cos(math.radians(angle_of_branch)) * secondary_dist)
         return tuple([second_x, second_y])
 
 
@@ -673,6 +711,7 @@ class synth_data_gen:
             blurred_image = gaussian(volume_generate, 10)
             io.imshow(blurred_image)
             plt.show()
+
         if 4 not in excluded_tests:
             # Rotated Branches Test
             angle_branch_struct = self.create_angled_structures(middle, branch_length, 255, 0, branch_count=3, angle=90, steepness=1, stepsize=1)
@@ -688,15 +727,20 @@ class synth_data_gen:
             plt.show()'''
         if 5 not in excluded_tests:
             #Complex Structure Test
-            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=4, second_centre=0.5, second_branch_num=2,
-                                                            second_len=branch_length/4, second_peak=170, second_kwargs=[{"Steepness":3}])
+            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=3, core_rot=0, second_centre=[0.7, 1],
+                                                            second_branch_num=[2, 9], second_len=[0.25, 0.5], second_peak=170,
+                                                            second_kwargs=[{"Steepness":3}], second_perp=True, second_angle=[0, 45])
             indexes = [list(tkeys) for tkeys in list(complex_branch_struct.keys())]
             values = [tvals for tvals in list(complex_branch_struct.values())]
             temp_image = np.zeros_like(self.synthetic_image)
             temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
             io.imshow(temp_image)
             plt.show()
+            '''complex_volume = self.volume_generation(complex_branch_struct, 0, 50)
+            complex_blur = gaussian(complex_volume, 10)
+            io.imshow(complex_blur)
+            plt.show()'''
 
 if __name__ == "__main__":
-    branch_test = synth_data_gen("", (1024, 1024))
+    branch_test = synth_data_gen("", (400, 400))
     branch_test.test_function([0, 1, 2, 3, 4])
