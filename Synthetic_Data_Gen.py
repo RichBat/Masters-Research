@@ -5,6 +5,7 @@ import skimage.draw as draw
 import math
 from skimage import io
 from skimage.filters import gaussian
+import time
 """
 To do:
 - test sub functions such as: 
@@ -30,6 +31,91 @@ class synth_data_gen:
         self.original_shape = original_size
         self.synthetic_image = np.zeros(shape=original_size)
 
+    def build_radius(self, cutoff_dist, current_coords=None):
+        """
+        This function will build a circular range of coordinates centred around a point. This circular patch will be shifted to the branch coordinate as
+        the centre. There will be some distance metric associated to the coordinates based on distance from the centre. This is a slightly altered version
+        of recursive_radiate_grow
+        :param cutoff_dist:
+        :return: The dictionary of coordinates and distances
+        """
+        already_seen = []
+        next_coords = []
+        centre = (int(self.original_shape[0]/2), int(self.original_shape[1]/2))
+        if current_coords is None:
+            current_coords = centre
+            next_coords = [[centre[0]+1, centre[1]], [centre[0]-1, centre[1]], [centre[0], centre[1]+1], [centre[0], centre[1]-1]]
+        else:
+            for c in current_coords:
+                if c[0] == centre[0]:
+                    if [c[0] + 1, c[1]] not in already_seen:
+                        next_coords.append([c[0] + 1, c[1]])
+                        already_seen.append([c[0] + 1, c[1]])
+                    if [c[0] - 1, c[1]] not in already_seen:
+                        next_coords.append([c[0] + 1, c[1]])
+                        already_seen.append([c[0] + 1, c[1]])
+                    if c[1] > centre[1]:
+                        if [c[0], c[1] + 1] not in already_seen:
+                            next_coords.append([c[0], c[1] + 1])
+                            already_seen.append([c[0], c[1] + 1])
+                    if c[1] < centre[1]:
+                        if [c[0], c[1] - 1] not in already_seen:
+                            next_coords.append([c[0], c[1] - 1])
+                            already_seen.append([c[0], c[1] - 1])
+                if c[1] == centre[1]:
+                    if [c[0], c[1] + 1] not in already_seen:
+                        next_coords.append([c[0], c[1] + 1])
+                        already_seen.append([c[0], c[1] + 1])
+                    if [c[0], c[1] - 1] not in already_seen:
+                        next_coords.append([c[0], c[1] - 1])
+                        already_seen.append([c[0], c[1] - 1])
+                    if c[0] > centre[0]:
+                        if [c[0] + 1, c[1]] not in already_seen:
+                            next_coords.append([c[0] + 1, c[1]])
+                            already_seen.append([c[0] + 1, c[1]])
+                    if c[0] < centre[0]:
+                        if [c[0] - 1, c[1]] not in already_seen:
+                            next_coords.append([c[0] - 1, c[1]])
+                            already_seen.append([c[0] - 1, c[1]])
+
+                if c[0] > centre[0]:
+                    if [c[0]+1, c[1]] not in already_seen:
+                        next_coords.append([c[0]+1, c[1]])
+                        already_seen.append([c[0]+1, c[1]])
+                else:
+                    if [c[0]-1, c[1]] not in already_seen:
+                        next_coords.append([c[0]-1, c[1]])
+                        already_seen.append([c[0]-1, c[1]])
+                if c[1] < centre[1]:
+                    if [c[0], c[1]-1] not in already_seen:
+                        next_coords.append([c[0], c[1]-1])
+                        already_seen.append([c[0], c[1]-1])
+                else:
+                    if [c[0], c[1]+1] not in already_seen:
+                        next_coords.append([c[0], c[1]+1])
+                        already_seen.append([c[0], c[1]+1])
+
+        dist_per_coord = {}
+        for n in next_coords:
+            distance = math.sqrt(abs(centre[0]-n[0])**2 + abs(centre[1]-n[1])**2)
+            if distance <= cutoff_dist:
+                dist_per_coord[(n[0], n[1])] = distance
+        new_current_coords = list(dist_per_coord)
+        if len(new_current_coords) > 0:
+            radiate_next = self.recursive_grow_radiate(centre, cutoff_dist, new_current_coords)
+            dist_per_coord.update(radiate_next)
+        return dist_per_coord
+
+    def bounded_patch(self, coord_dict, centre):
+        in_range_coords = {}
+        x_upper = self.original_shape[0] - 1
+        y_upper = self.original_shape[1] - 1
+        centre_offset = [int(self.original_shape[0]/2), int(self.original_shape[1]/2)]
+        for coord, dist in coord_dict.items():
+            if 0 <= coord[0]+centre[0]-centre_offset[0] <= x_upper and 0 <= coord[1]+centre[1]-centre_offset[1] <= y_upper:
+                in_range_coords[(coord[0]+centre[0]-centre_offset[0], coord[1]+centre[1]-centre_offset[1])] = dist
+        return in_range_coords
+
     def volume_generation(self, branches, slope, thickness=10):
         """
         This function will generate linearly decaying volume around a branch. The noise must starkly drop and then plateau outward for x positions.
@@ -46,23 +132,33 @@ class synth_data_gen:
         bins = np.linspace(0, int(thickness/2)+2, int(thickness/2)+2)
         mu = 0
         dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
-        plt.plot(bins, dens)
-        plt.show()
         #print(dens)
         branch_layers = []
+        circle_patch = self.build_radius(len(bins)-2)
+        '''test_ones = np.ones(patch_distances.shape)
+        test_layer = np.zeros(shape=self.original_shape)
+        test_layer[patch_coords[:, 0], patch_coords[:, 1]] = test_ones
+        io.imshow(test_layer)
+        plt.show()'''
         #If "branches" is a list of branches which have their own respective list of coordinates and magnitudes then encapsulate in a list
         for branch, branch_mag in branches.items():
             branch_layer = np.zeros(shape=self.original_shape)
-            volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins)-2)
+            '''volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins)-2)
             coords = np.array(list(volume_dist_dicts.keys()))
-            #print(volume_dist_dicts[(41, 20)])
-            distances = np.array([self.interpolate_distribution(val, dens) for val in volume_dist_dicts.values()])
+            distances = np.array([self.interpolate_distribution(val, dens) for val in volume_dist_dicts.values()])'''
+            bounded_coords = self.bounded_patch(circle_patch, branch)
+            patch_coords = np.array(list(bounded_coords.keys()))
+            patch_distances = np.array([self.interpolate_distribution(val, dens) for val in bounded_coords.values()])
             # Assuming shaping is correct
-            branch_layer[coords[:, 0], coords[:, 1]] = distances
+            branch_layer[patch_coords[:, 0], patch_coords[:, 1]] = patch_distances
+            branch_layer = branch_layer / np.max(branch_layer)
+            branch_layer[branch[0], branch[1]] = 1
+            branch_layers.append(branch_layer * branch_mag)
+            '''branch_layer[coords[:, 0], coords[:, 1]] = distances
             branch_layer = branch_layer/np.max(branch_layer)
             branch_layer[branch[0], branch[1]] = 1
             #print("Branch Coord:", branch, "Branch Value:", branch_mag)
-            branch_layers.append(branch_layer*branch_mag)
+            branch_layers.append(branch_layer*branch_mag)'''
             '''test_ones = np.ones(distances.shape)
             test_layer = np.zeros(shape=self.original_shape)
             test_layer[coords[:, 0], coords[:, 1]] = test_ones
@@ -727,19 +823,48 @@ class synth_data_gen:
             plt.show()'''
         if 5 not in excluded_tests:
             #Complex Structure Test
-            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=3, core_rot=0, second_centre=[0.7, 1],
-                                                            second_branch_num=[2, 9], second_len=[0.25, 0.5], second_peak=170,
-                                                            second_kwargs=[{"Steepness":3}], second_perp=True, second_angle=[0, 45])
-            indexes = [list(tkeys) for tkeys in list(complex_branch_struct.keys())]
+            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=6, core_rot=0, second_centre=[0.7],
+                                                            second_branch_num=[3], second_len=[0.25], second_peak=170,
+                                                            second_kwargs=[{"Steepness":3}], second_perp=True, second_angle=[270])
+            '''indexes = [list(tkeys) for tkeys in list(complex_branch_struct.keys())]
             values = [tvals for tvals in list(complex_branch_struct.values())]
             temp_image = np.zeros_like(self.synthetic_image)
             temp_image[np.array(indexes)[:, 0], np.array(indexes)[:, 1]] = np.array(values)
             io.imshow(temp_image)
-            plt.show()
-            '''complex_volume = self.volume_generation(complex_branch_struct, 0, 50)
+            plt.show()'''
+            start_time = time.process_time()
+            complex_volume = self.volume_generation(complex_branch_struct, 0, 50)
+            end_time = time.process_time()
+            print("Runtime was " + str(end_time-start_time) + "s")
             complex_blur = gaussian(complex_volume, 10)
             io.imshow(complex_blur)
-            plt.show()'''
+            plt.show()
+
+    def generate_complex_with_volume(self, core_centre, core_length, core_peak, core_scaling, core_branch_num, second_centre, second_branch_num,
+                           second_len, second_peak, second_kwargs, core_rot=0, second_perp=True, second_angle=0, second_pattern=None, second_scaling=4,
+                           second_len_ratio=False, **kwargs):
+        complex_branch_struct = self.complex_structures(core_centre, core_length, core_peak, core_scaling, core_branch_num, second_centre, second_branch_num,
+                           second_len, second_peak, second_kwargs, core_rot=0, second_perp=True, second_angle=0, second_pattern=None, second_scaling=4,
+                           second_len_ratio=False, **kwargs)
+        smoothed_image = self.volume_generation(complex_branch_struct, 0, 50)
+        self.synthetic_image = np.maximum(self.synthetic_image, smoothed_image)
+
+    def generate_structures(self, input_parameters):
+        """
+        This method will receive a list of dictionaries for object generation. The dictionaries themselves will be the keys relating to the input parameters
+        for complex structure generation and gaussian blurring. The structures will each be named during initialisation. In future a method to edit
+        generated structures may be desired but this is not currently viable (jupyter notebook or GUI dependent)
+        :param input_parameters: List of dictionaries with keys and values relating to arguements for complex_structures and volume_generation
+        :return:
+        """
+        for structures in input_parameters:
+            if set(structures).issubset(["core_length", "core_peak", "core_scaling", "core_branch_num", "second_centre", "second_branch_num",
+                           "second_len", "second_peak", "second_kwargs"]):
+                self.generate_complex_with_volume(**structures)
+            else:
+                print("Mandatory Arguments are missing")
+
+
 
 if __name__ == "__main__":
     branch_test = synth_data_gen("", (400, 400))
