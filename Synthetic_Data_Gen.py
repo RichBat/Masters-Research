@@ -823,9 +823,9 @@ class synth_data_gen:
             plt.show()'''
         if 5 not in excluded_tests:
             #Complex Structure Test
-            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=6, core_rot=0, second_centre=[0.7],
-                                                            second_branch_num=[3], second_len=[0.25], second_peak=170,
-                                                            second_kwargs=[{"Steepness":3}], second_perp=True, second_angle=[270])
+            complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=20, core_rot=0, second_centre=[0.7, 1],
+                                                            second_branch_num=[3, 2], second_len=[0.25, 0.5], second_peak=170,
+                                                            second_kwargs=[{"Steepness":3}], second_perp=True, second_angle=[270, 0])
             '''indexes = [list(tkeys) for tkeys in list(complex_branch_struct.keys())]
             values = [tvals for tvals in list(complex_branch_struct.values())]
             temp_image = np.zeros_like(self.synthetic_image)
@@ -836,7 +836,7 @@ class synth_data_gen:
             complex_volume = self.volume_generation(complex_branch_struct, 0, 50)
             end_time = time.process_time()
             print("Runtime was " + str(end_time-start_time) + "s")
-            complex_blur = gaussian(complex_volume, 10)
+            complex_blur = gaussian(complex_volume, 1)
             io.imshow(complex_blur)
             plt.show()
 

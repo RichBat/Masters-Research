@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 csv_file = "C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\High_Thresh.csv"
+csv_list = ["C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\N1High_Thresh.csv",
+            "C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\N2High_Thresh.csv",
+            "C:\\RESEARCH\\Mitophagy_data\\Complete CSV Data\\High_Thresh.csv"]
 
 def between_variation(x):
     per_sample = {}
@@ -29,17 +32,33 @@ def between_variation(x):
     for p in list(per_sample):
         per_sample[p] = sum(per_sample[p])/len(per_sample[p])
     print(per_sample)
+    return per_sample
+
+def summarise_results(frame, p, k):
+    reduced_frame = frame.loc[(frame['Power'] == p) & (frame['Steep'] == k)]
+    reduced_frame = reduced_frame.drop(['Power', 'Steep'], axis=1)
+    print(reduced_frame)
 
 
 if __name__ == "__main__":
-    df = pd.read_csv(csv_file)
-    df = df.dropna()
-    if 'Valid' in list(df.columns):
-        '''grouped_valid = df.groupby('Valid')
-        for key, item in grouped_valid:
-            print(grouped_valid.get_group(key), "\n\n")'''
-        df = df.drop(df[df['Valid'] == False].index)
-        df = df.drop(columns=['Valid'])
+    df_range = []
+    for c in csv_list:
+        df = pd.read_csv(c)
+        df = df.dropna()
+        #print(df.columns)
+        if 'Valid' in list(df.columns):
+            '''grouped_valid = df.groupby('Valid')
+            for key, item in grouped_valid:
+                print(grouped_valid.get_group(key), "\n\n")'''
+            df = df.drop(df[df['Valid'] == False].index)
+            df = df.drop(columns=['Valid'])
+        df_range.append(df)
+    df = pd.concat(df_range, ignore_index=True)
+    '''duplicate_rows = df.duplicated(subset=list(df.columns))
+    print(df[duplicate_rows])
+    print(list(df.columns))
+    df.drop_duplicates(subset=list(df.columns), inplace=True)
+    print(df)'''
     categories1 = list(df.columns)
     categories1.remove('Steep')
     categories1.remove('High Thresh')
@@ -67,3 +86,4 @@ if __name__ == "__main__":
     print(steep_data.loc[steep_data.index.values[0]])'''
     between_variation(steep_data)
     between_variation(power_data)
+    summarise_results(df, 1, 12)
