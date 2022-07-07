@@ -1030,11 +1030,11 @@ def generate_sigmoid(midpoint, k=10):
     print("Power:", k*(-1*midpoint), k, midpoint)
     print(range_of_sig[0], range_of_sig[-1])
     print("Number of sigmoid values:", len(range_of_sig), midpoint*2)
-    plt.plot(np.linspace(0, len(range_of_sig), len(range_of_sig)), range_of_sig, label="Logistic")
+    '''plt.plot(np.linspace(0, len(range_of_sig), len(range_of_sig)), range_of_sig, label="Logistic")
     norm_sigs = [normed/max(range_of_sig) for normed in range_of_sig]
     plt.plot(np.linspace(0, len(norm_sigs), len(norm_sigs)), norm_sigs, label="Norm Logistic")
     plt.legend()
-    plt.show()
+    plt.show()'''
     return range_of_sig
 
 def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
@@ -1218,6 +1218,7 @@ def rescale_gaussian(values, sensitivity=0, voxels=None, power=1):
 
 def dist_rescale_testing(values, sensitivity=0, voxels=None, power=1, steepness=8, name=None):
     max_val = math.ceil(max(values))
+    print("Maximum Value", max_val)
     resized = 1
     voxel_weights = []
     if voxels is not None:
@@ -1237,6 +1238,8 @@ def dist_rescale_testing(values, sensitivity=0, voxels=None, power=1, steepness=
         max_val = math.ceil((np_values/smallest_gap).max())
         resized = smallest_gap
     logist = generate_sigmoid(max_val/2, steepness)
+    print("Original Logist vs Slopes", len(logist), len(values))
+    logist_invert_compare(values, voxels, steepness)
     plt.plot(np.linspace(0, len(logist), len(logist)), logist)
     plt.show()
     width = max_val/0.997
@@ -1300,6 +1303,7 @@ def dist_rescale_testing(values, sensitivity=0, voxels=None, power=1, steepness=
     rescaled_values = rescaled_values[int(knee):]
     values = values[int(knee):]
     intensity_scaled = intensity_scaled[int(knee):]
+    voxel_weights = voxel_weights[int(knee):]
     intensity_weights = intensity_weights[int(knee):]
     auc_value = metrics.auc(np.linspace(0, len(intensity_scaled), len(intensity_scaled)), intensity_scaled)
     print("Auc Value", auc_value)
@@ -1395,6 +1399,7 @@ def dist_rescale_testing(values, sensitivity=0, voxels=None, power=1, steepness=
     #print("Other M", other_m)
     #print("Current Mean", range_of_means1/len(values))
     print("Length check", len(intensity_scaled), len(values))
+    print("KNee present", knee)
     range_of_means1 = [(range_of_means11/len(rescaled_values)) + int(knee), (range_of_means12/len(logist_rescaled)) + int(knee),
                        (range_of_means13/len(rescaled_values)) + int(knee)]
     range_of_means2 = [(range_of_means21/len(rescaled_values)) + int(knee), (range_of_means22/len(logist_rescaled)) + int(knee),
@@ -1404,20 +1409,96 @@ def dist_rescale_testing(values, sensitivity=0, voxels=None, power=1, steepness=
 def logist_invert_compare(ave_slopes, voxels, steepness):
     vox_max = max(voxels)
     vox_weight = [vw/vox_max for vw in voxels[:-1]]
+    neutral_weights = [1 for vox in voxels[:-1]]
+    max_slope = math.ceil(max(ave_slopes))
     intens_width = len(ave_slopes)
-    logist = generate_sigmoid(max(ave_slopes)/2, steepness)
-    logist_rescaled = [logist[lgr] for lgr in ave_slopes]
+    invert_rescaled, invert_dict = invert_rescaler(ave_slopes)
+    invert_weighted = apply_weights(invert_rescaled, ave_slopes)
+    invert_knee_f = KneeLocator(np.linspace(0, len(invert_weighted), len(invert_weighted)), invert_weighted, S=0.1, curve="convex", direction="decreasing")
+    invert_knee = int(invert_knee_f.knee)
+    print("Invert Knee", invert_knee)
+    inverted_intensites = weighted_intensities(ave_slopes, invert_dict, vox_weight)
+    x_axis = np.linspace(0, len(invert_rescaled), len(invert_rescaled))
+    normalized_orig = [slope_val/max_slope for slope_val in ave_slopes]
+    print("Maximum Slope:", max_slope)
+    colors = ['r', 'g', 'c', 'm', 'y']
+    logist_centroids = []
+    for k, c in zip([4, 6, 8, 10, 12], colors):
+        logist = generate_sigmoid(max_slope / 2, k)
+        logist_rescaled = [logist[int(lgr)] for lgr in ave_slopes]
+        logist_weighted = apply_weights(logist_rescaled, ave_slopes)
+        logist_knee_f = KneeLocator(np.linspace(0, len(logist_weighted), len(logist_weighted)), logist_weighted, S=0.1, curve="convex", direction="decreasing")
+        logist_knee = int(logist_knee_f.knee)
+        logist_intensities = weighted_intensities(ave_slopes, logist, vox_weight)
+        logist_centroid = weighted_intensity_centroid(ave_slopes[logist_knee:], logist, vox_weight[logist_knee:])
+        logist_centroids.append(logist_centroid+logist_knee)
+        plt.plot(np.linspace(0, len(logist_intensities), len(logist_intensities)), logist_intensities, color=c, label='Logistic ' + str(k))
+        plt.axvline(x=logist_centroid, color=c)
+    print("Matching length check", len(inverted_intensites), len(ave_slopes))
+    plt.plot(x_axis, inverted_intensites, color='b', label='Inverted')
+    inverted_centroid = weighted_intensity_centroid(ave_slopes[invert_knee:], invert_dict, vox_weight[invert_knee:])
+    plt.axvline(x=inverted_centroid, color='b')
+    print("Inverted Centroid:", inverted_centroid+invert_knee, "Logistic Centroid:", logist_centroids)
+    plt.legend()
+    plt.show()
 
-def invert_rescale(values):
-    inverted_rescale = []
-    inverted = {inv: (max(values) - inv) / max(values) for inv in range(int(max(values)) + 1)}
-    print(inverted)
-    for v in range(len(values)):
-        if values[v] == int(values[v]):
-            inverted_rescale.append(inverted[values[v]])
+def weighted_intensity_centroid(values, weights, voxel_weights):
+    """
+    This method will apply the weights for each value to the value. Values and voxel_weights must clip [knee:] in argument.
+    The weighted window for each intensity should be calculated by applying the normalized voxel weight and the calculated weight.
+    This will then be used to determine the weighted, biased centroid
+    :param values:
+    :param weights:
+    :param voxel_weights:
+    :return:
+    """
+    biased_centroid = 0
+    window_width_weight = 0
+    for d in range(len(values), 0, -1):
+        sum_scaled = 0
+        weight_total = 0
+        for v in range(0, d):
+            val = values[v]
+            if type(weights) is dict:
+                weight = weights[val]
+            else:
+                weight = weights[int(val)]
+            vw = voxel_weights[v]
+            weight_total += weight
+            weighted_val = v * weight * vw
+            sum_scaled += weighted_val
+        biased_window_centroid = sum_scaled/weight_total
+        biased_centroid += biased_window_centroid
+        window_width_weight += d/len(values)
+    return biased_centroid/window_width_weight
+
+def weighted_intensities(values, weights, voxel_weights):
+    intensities_weighted = []
+    print("Weight Length Check:", len(weights), len(voxel_weights), len(values))
+    for v in range(0, len(values)):
+        val = values[v]
+        if type(weights) is dict:
+            weight = weights[val]
         else:
-            inv_diff = values[v]-int(values[v])
-            next_v = values[v+1]
+            weight = weights[int(val)]
+        vw = voxel_weights[v]
+        intensities_weighted.append(v * weight * vw)
+    return intensities_weighted
+
+def apply_weights(weightings, original):
+    reweighted_vals = []
+    for w, o in zip(weightings, original):
+        reweighted_vals.append(w*o)
+    return reweighted_vals
+
+def invert_rescaler(values):
+    inverted_rescale = []
+    inverted = [(max(values) - values[inv]) / max(values) for inv in range(len(values))]
+    inverted_dict = {values[inv]: (max(values) - values[inv]) / max(values) for inv in range(len(values))}
+    '''for v in values:
+        inverted_rescale.append(inverted[v])'''
+    return inverted, inverted_dict
+
 
 
 def centroid_of_graph(values):
@@ -1509,13 +1590,14 @@ def evaluate_cumulative_hys():
                 square_voxels.append(sv*sv)
             set_of_means = []
             steepness_it = []
-            for s in [1, 2, 10]:
+            for s in [4, 6, 10]:
                 auto_low = []
                 auto_high = []
                 print("Steepness:", s)
-                for p in [5]:
+                for p in [10]:
                     vox_scaler = p/10
                     #mean1, mean2 = rescale_gaussian(mving_slopes, 0, voxels, power=p)
+                    print("Offset Intensity:", intens[0])
                     mean1, mean2 = dist_rescale_testing(mving_slopes, 0, voxels, power=vox_scaler, steepness=s, name=k)
                     print("Compared Means:", mean1, mean2)
                     mean1[0] = mean1[0] + intens[0]

@@ -9,12 +9,24 @@ This will take the preprocessed image and compare it to the dimensions of the de
 
 """
 
-decon_paths = ["C:\\RESEARCH\\Mitophagy_data\\N2\\Deconvolved\\", "C:\\RESEARCH\\Mitophagy_data\\N3\\Deconvolved\\", "C:\\RESEARCH\\Mitophagy_data\\N4\\Deconvolved\\"]
+decon_paths = ["C:\\RESEARCH\\Mitophagy_data\\N1\\Deconvolved\\", "C:\\RESEARCH\\Mitophagy_data\\N2\\Deconvolved\\",
+               "C:\\RESEARCH\\Mitophagy_data\\N3\\Deconvolved\\", "C:\\RESEARCH\\Mitophagy_data\\N4\\Deconvolved\\"]
 input_paths = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Input\\"
 output_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"
 input_files = [f for f in listdir(input_paths) if isfile(join(input_paths, f))]
 
 decon_files = [[decon_path + f, f] for decon_path in decon_paths for f in listdir(decon_path) if isfile(join(decon_path, f))]
+
+timeframes_to_keep = {"N3CCCP_4C=1.tif": [1, 10], "N3Con_1C=1.tif": [1, 8], "N3Con_1C=0.tif": [1, 2], "N4CCCP_1C=1.tif": [2],
+                      "N4CCCP_2C=0.tif": [3], "N4CCCP_2C=1.tif": [10], "N2Rapa+CCCP+Baf_1C=1.tif": [6]}
+
+def save_time_separated(segment, image, file):
+    t_seg = image[segment]
+    if len(t_seg.shape) > 3:
+        t_seg = np.mean(t_seg, axis=-1)
+    print(t_seg.shape)
+    t_seg = t_seg.astype('uint8')
+    tifffile.imwrite(output_path + file.split(".")[0] + "T=" + str(segment) + ".tif", t_seg, imagej=True, metadata={'axes': 'ZYX'})
 
 for file in input_files:
     print("Sample", file)
@@ -40,12 +52,13 @@ for file in input_files:
                 image_list.append(time_segment)
             input_image = np.stack(image_list, axis=0)
         for input_t in range(input_image.shape[0]):
-            t_seg = input_image[input_t]
-            if len(t_seg.shape) > 3:
-                t_seg = np.mean(t_seg, axis=-1)
-            print(t_seg.shape)
-            t_seg = t_seg.astype('uint8')
-            tifffile.imwrite(output_path + file.split(".")[0] + "T=" + str(input_t) + ".tif", t_seg, imagej=True, metadata={'axes': 'ZYX'})
+            if file in timeframes_to_keep:
+                if input_t in timeframes_to_keep[file]:
+                    save_time_separated(input_t, input_image, file)
+            else:
+                if input_t == 0:
+                    save_time_separated(input_t, input_image, file)
+
         print("Time Separated")
 
 

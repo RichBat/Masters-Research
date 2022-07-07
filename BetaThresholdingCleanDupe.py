@@ -1058,7 +1058,8 @@ def organise_data(file_paths, discrete_data=True, high_thresh_data=True, relativ
 
     just_paths = list(file_paths)
     files = {file_paths[indiv_paths]:[[indiv_paths, f] for f in listdir(indiv_paths + "Preprocessed\\")
-                                      if isfile(join(indiv_paths + "Preprocessed\\", f)) and f.endswith('.tif')] for indiv_paths in just_paths}
+          if isfile(join(indiv_paths + "Preprocessed\\", f)) and f.endswith('.tif')]
+             for indiv_paths in just_paths}
 
     discrete_data_list = []
     high_thresh_data_list = []
