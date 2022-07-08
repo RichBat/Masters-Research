@@ -140,6 +140,27 @@ class AutoThresholder:
                     self.sample_thresholds[filename][counter] = {"Low": str(low_thresh), "High":{"Inverted": inverted_threshes, "Logistic": logistic_threshes}}
                 counter += 1
 
+    def _specific_thresholds(self, image, excluded_type, thresh_options, steepness=6, power=1):
+        low_thresh, valid_low = self._low_select(image)
+        if valid_low:
+            intens, voxels = self._iterate_hysteresis(image, low_thresh)
+            intens = intens[:-1]
+            voxels = voxels[:-1]
+            slopes, slope_points = self._get_slope(intens, voxels)
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            threshold_results = {}
+            for t in thresh_options:
+                if "Inverted" not in excluded_type:
+                    high_invert = self._inverted_thresholding(mving_slopes, voxels, t)
+                    threshold_results["Inverted"] = [low_thresh, high_invert, t]
+                if "Logistic" not in excluded_type:
+                    high_logistic = self._logistic_thresholding(mving_slopes, voxels, steepness, t)
+                    threshold_results["Logistic"] = [low_thresh, high_logistic, t]
+            return threshold_results
+        else:
+            return None
+
+
     def _generate_sigmoid(self, midpoint, k=10):
         k = k / (midpoint * 2)
         range_of_sig = []
@@ -541,16 +562,43 @@ class AutoThresholder:
         distance_data = self.distance_metrics.groupby(categories)['Distance'].mean()
         print(distance_data)
 
-    def threshold_images(self, version=1, excluded_type=["Inverted"]):
-        print("")
+    def threshold_images(self, save_path, version=[1], excluded_type=["Inverted"]):
+        if len(self.sample_thresholds) == 0:
+            for f in self.file_list:
+                image = io.imread(f[0])
+                gray_image = self._grayscale(image)
+                image_set = self._timeframe_sep(gray_image, f[1])
+                for img in image_set:
+                    high_threshes = self._specific_thresholds(img, excluded_type, version)
+                    if high_threshes is not None:
+                        for thresh_type, thresholds in high_threshes.items():
+                            image_mask = self._threshold_image(img, thresholds[0], thresholds[1]).astype("int")
+                            thresholed_image = (img*image_mask).astype("uint8")
+                            tifffile.imwrite(save_path + f[1].split('.tif')[0] + "ThreshType" + thresh_type + "Option" + str(thresholds[2]) +
+                                             ".tif", thresholed_image, imagej=True)
+        else:
+            for sample, stats in self.sample_thresholds.items():
+                image_stack = io.imread(self.image_paths[sample])
+                grayscale_stack = self._grayscale(image_stack)
+                time_separated_stack = self._timeframe_sep(grayscale_stack, sample)
+                for t, threshes in stats.items():
+                    time_point = int(t)
+                    img = time_separated_stack[time_point]
+                    low_thresh = float(threshes["Low"])
+                    for thresh_types, thresh in threshes["High"].items():
+                        for options, option_results in thresh.items():
+                            image_mask = self._threshold_image(img, low_thresh, float(option_results)).astype("int")
+                            thresholed_image = (image_mask*img).astype("uint8")
+                            tifffile.imwrite(save_path + sample.split('.tif')[0] + "ThreshType" + thresh_types + "Option" + options +
+                                             ".tif", thresholed_image, imagej=True)
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     threshold_comparer = AutoThresholder(input_path)
     threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
-    threshold_comparer.process_images()
-    # threshold_comparer.get_threshold_results()
-    # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
+    # threshold_comparer.process_images()
     threshold_comparer.get_threshold_results()
+    # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
+    # threshold_comparer.get_threshold_results()
     # threshold_comparer.preview_thresholds_options(True)
-    threshold_comparer.explore_distance_metrics()
+    # threshold_comparer.explore_distance_metrics()
