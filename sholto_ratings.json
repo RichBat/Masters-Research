@@ -1,0 +1,128 @@
+{
+    "CCCP+Baf_2C=0T=0.tif": {
+        "Inverted0": 2,
+        "Inverted1": 2,
+        "Inverted2": 3
+    },
+    "CCCP+Baf_2C=1T=0.tif": {
+        "Inverted2": 4,
+        "Inverted0": 4,
+        "Inverted1": 4
+    },
+    "CCCP_1C=0T=0.tif": {
+        "Inverted2": 3,
+        "Inverted1": 2,
+        "Inverted0": 2
+    },
+    "CCCP_1C=1T=0.tif": {
+        "Inverted0": 5,
+        "Inverted1": 4,
+        "Inverted2": 4
+    },
+    "CCCP_2C=0T=0.tif": {
+        "Inverted2": 1,
+        "Logistic2": 3,
+        "Inverted1": 1,
+        "Inverted0": 1
+    },
+    "CCCP_2C=1T=0.tif": {
+        "Inverted0": 4,
+        "Inverted1": 3,
+        "Inverted2": 3
+    },
+    "N2CCCP+Baf_1C=1T=0.tif": {
+        "Inverted2": 3,
+        "Inverted1": 2,
+        "Inverted0": 2
+    },
+    "N2CCCP+Baf_3C=0T=0.tif": {
+        "Inverted0": 4,
+        "Inverted1": 4,
+        "Inverted2": 4
+    },
+    "N2CCCP+Baf_4C=1T=0.tif": {
+        "Inverted2": 3,
+        "Inverted1": 4,
+        "Inverted0": 4
+    },
+    "N2Con_3C=0T=0.tif": {
+        "Inverted0": 2,
+        "Inverted1": 2,
+        "Inverted2": 2
+    },
+    "N2Con_3C=1T=0.tif": {
+        "Inverted2": 3,
+        "Inverted1": 3,
+        "Inverted0": 4
+    },
+    "N2Rapa+CCCP+Baf_1C=1T=6.tif": {
+        "Inverted0": 2,
+        "Inverted1": 2,
+        "Inverted2": 2
+    },
+    "N3CCCP+Baf_1C=1T=0.tif": {
+        "Inverted2": 4,
+        "Inverted1": 4,
+        "Inverted0": 4
+    },
+    "N3CCCP+Baf_2C=0T=0.tif": {
+        "Inverted0": 3,
+        "Inverted1": 3,
+        "Inverted2": 4
+    },
+    "N3CCCP_2C=0T=0.tif": {
+        "Inverted2": 4,
+        "Inverted1": 4,
+        "Inverted0": 4
+    },
+    "N3CCCP_4C=1T=1.tif": {
+        "Inverted0": 3,
+        "Inverted1": 3,
+        "Inverted2": 3
+    },
+    "N3CCCP_4C=1T=10.tif": {
+        "Inverted2": 2,
+        "Inverted1": 1,
+        "Inverted0": 1
+    },
+    "N3Con_1C=0T=1.tif": {
+        "Inverted0": 1,
+        "Inverted1": 1,
+        "Inverted2": 1
+    },
+    "N3Con_1C=0T=2.tif": {
+        "Inverted0": 1,
+        "Inverted1": 2,
+        "Inverted2": 1
+    },
+    "N3Con_1C=1T=1.tif": {
+        "Inverted2": 2,
+        "Inverted1": 3,
+        "Inverted0": 3
+    },
+    "N3Con_1C=1T=8.tif": {
+        "Inverted0": 3,
+        "Inverted1": 3,
+        "Inverted2": 3
+    },
+    "N4CCCP_1C=0T=0.tif": {
+        "Inverted2": 4,
+        "Inverted1": 4,
+        "Inverted0": 4
+    },
+    "N4CCCP_1C=1T=2.tif": {
+        "Inverted0": 4,
+        "Inverted1": 4,
+        "Inverted2": 4
+    },
+    "N4CCCP_2C=0T=3.tif": {
+        "Inverted2": 5,
+        "Inverted1": 4,
+        "Inverted0": 4
+    },
+    "N4CCCP_2C=1T=10.tif": {
+        "Inverted0": 3,
+        "Inverted1": 2,
+        "Inverted2": 2
+    }
+}
