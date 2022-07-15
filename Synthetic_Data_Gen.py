@@ -6,6 +6,7 @@ import math
 from skimage import io
 from skimage.filters import gaussian
 import time
+import timeit
 """
 To do:
 - test sub functions such as: 
@@ -864,8 +865,63 @@ class synth_data_gen:
             else:
                 print("Mandatory Arguments are missing")
 
+    def boolean_check(self, value):
+        middle = (int(self.original_shape[0]/2), int(self.original_shape[1]/2))
+        peak, branch_length = int(self.original_shape[0] / 4), int(self.original_shape[0] / 4)
+        complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=20, core_rot=0, second_centre=[0.7],
+                                                        second_branch_num=[3], second_len=[0.25], second_peak=170,
+                                                        second_kwargs=[{"Steepness": 3}], second_perp=True, second_angle=[270])
+        start_time = time.process_time()
+        complex_volume = self.volume_generation(complex_branch_struct, 0, 50)
+        end_time = time.process_time()
+        print("Runtime was " + str(end_time - start_time) + "s")
+        complex_blur = gaussian(complex_volume, 1)
+        '''io.imshow(complex_blur)
+        plt.show()'''
+        above_high = np.greater(complex_blur, value)
+        coordinates = np.where(complex_blur > value)
+        valid_values = np.sum(complex_blur > value)
+        print("Coords", coordinates[0].size, valid_values)
+        zero_template = np.zeros_like(complex_blur)
+        result = complex_blur[coordinates[0], coordinates[1]]
+        print(result.shape)
+        print(type(np.where(complex_blur > value)))
+        # zero_template[above_high] = complex_blur[above_high]
+        zero_template[np.where(complex_blur > value)] = complex_blur[np.where(complex_blur > value)]
+        print(zero_template.shape)
+        '''io.imshow(zero_template)
+        plt.show()'''
+        #boolean1 = complex_blur[np.where(complex_blur > value)] > value + 10
+        bool1Begin = time.process_time_ns()
+        boolean1 = np.greater(complex_blur, value)
+        t1 = timeit.Timer(lambda: greater_than_test(complex_blur, value, True))
+        print("Time 1:", t1.timeit())
+        bool1End = time.process_time_ns()
+        bool2Begin = time.process_time_ns()
+        boolean2 = np.greater(complex_blur, value + 30, where=boolean1)
+        t2 = timeit.Timer(lambda: greater_than_test(complex_blur, value+30, boolean1))
+        print("Time 2:", t2.timeit())
+        bool2End = time.process_time_ns()
+        bool3Begin = time.process_time_ns()
+        boolean3 = np.greater(complex_blur, value + 60, where=boolean2)
+        t3 = timeit.Timer(lambda: greater_than_test(complex_blur, value+60, boolean2))
+        print("Time 3:", t3.timeit())
+        bool3End = time.process_time_ns()
+        print("Time taken:\n", "Bool1=", (bool1Begin-bool1End), "\n", "Bool2=", (bool2Begin-bool2End), "\n", "Bool3=", (bool3Begin-bool3End))
+        zero_template2 = np.zeros_like(complex_blur)
+        zero_template2[boolean1] = complex_blur[boolean1]
+        print(zero_template2)
+        io.imshow(zero_template2)
+        plt.show()
+        '''bool_image = complex_blur[coordinates[0]]
+        io.imshow(bool_image)
+        plt.show()'''
 
+def greater_than_test(image, value, prior):
+    boolean_test = np.greater(image, value, where=prior)
 
 if __name__ == "__main__":
-    branch_test = synth_data_gen("", (400, 400))
-    branch_test.test_function([0, 1, 2, 3, 4])
+    branch_test = synth_data_gen("", (600, 600))
+    #branch_test.test_function([0, 1, 2, 3, 4])
+    #branch_test.boolean_check(50)
+    print(list(range(10, 100)))

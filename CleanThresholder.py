@@ -11,6 +11,7 @@ from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshol
 import tifffile
 from knee_locator import KneeLocator
 import time
+from scipy import ndimage as ndi
 
 class AutoThresholder:
     def __init__(self, input_paths, deconvolved_paths=None):
@@ -97,7 +98,7 @@ class AutoThresholder:
                 else:
                     return None
 
-    def _acquire_thresholds(self, image, filename, steepness=6, power=1):
+    def _acquire_thresholds(self, image, filename, steepness=6, power=1, options=[0, 1, 2]):
         print("Sample " + filename)
         gray_image = self._grayscale(image)
         print("Grayscale Image Shape:", gray_image.shape)
@@ -129,7 +130,7 @@ class AutoThresholder:
                     print("Rolling average of slopes determined")
                     inverted_threshes = {}
                     logistic_threshes = {}
-                    for t in [0, 1, 2]:
+                    for t in options:
                         print("Option " + str(t) + " is being processed")
                         high_invert, high_logistic = self._logist_invert_compare(mving_slopes, voxels, steepness, t)
                         inverted_threshes[t] = str(high_invert)
@@ -426,12 +427,23 @@ class AutoThresholder:
 
     def get_threshold_results(self):
         print(self.sample_thresholds)
+        sample_list = list(self.sample_thresholds)
+        sample_count = 0
+        print("Samples are:")
+        for s in sample_list:
+            print(s)
+            sample_count += len(list(self.sample_thresholds[s]))
+        print("There are " + str(sample_count) + " samples.")
+
 
     def save_threshold_results(self, save_path):
         with open(save_path, 'w') as j:
             json.dump(self.sample_thresholds, j)
 
     def _threshold_image(self, image, low_thresh, high_thresh):
+        if high_thresh < low_thresh:
+            print("High thresh too low:", high_thresh)
+            high_thresh = high_thresh + low_thresh
         thresholded_image = apply_hysteresis_threshold(image, low_thresh, high_thresh).astype("int")
         return thresholded_image
 
@@ -448,8 +460,7 @@ class AutoThresholder:
         return rgb_overlayed
 
     def preview_thresholds_options(self, mip=False):
-        if len(self.sample_thresholds) == 0:
-            self.process_images()
+        self.process_images()
         for sample, stats in self.sample_thresholds.items():
             image_stack = io.imread(self.image_paths[sample])
             grayscale_stack = self._grayscale(image_stack)
@@ -548,12 +559,70 @@ class AutoThresholder:
             distance += math.pow((voxel_values1[i] - voxel_values2[i]), 2)
         return math.sqrt(distance)
 
+    def _efficient_hysteresis_iterative(self, image, low):
+        """
+        In this method the image and low thresholds are supplied to generate the mask_low labels for all elements greater than the low threshold.
+        The high threshold is a maximum value and there will be iteration from the low value to the high value to produce a range of mask_high arrays.
+        The aim of this efficiency wise is to improve the speed of mask_high generation for all high thresholds (i) greater than low (i=0)>
+        Thus mask_high[i=0] = image > high but all subsequent mask_high[i] for i>0 will be based on the True locations in mask_high[i-1].
+        This method is based off of apply_hysteresis_threshold in scikit-image
+        (https://github.com/scikit-image/scikit-image/blob/v0.19.2/skimage/filters/thresholding.py#L1159-L1203)
+        :param image: ndArray
+        :param low: float
+        :return:
+        """
+        img_max = image.max()
+        thresh_width = img_max - low
+        mask_low = image > low
+        labels_low, num_labels = ndi.label(mask_low)
+        thresholded = [None]*thresh_width
+        intensities = list(range(low+1, img_max+1))
+        num_range = np.arange(num_labels + 1)
+        mask_prior = True
+        for i in range(len(intensities)):
+            i_sum, mask_prior = self._check_greater(image, intensities[i], labels_low, num_range, mask_prior)
+            thresholded[i] = i_sum
+
+        thresholded.reverse()
+        intensities.reverse()
+
+        return intensities, thresholded
+
+    def _check_greater(self, im, thresh, labels_low, num_range, prior=True):
+        mask_high = np.greater(im, thresh, where=prior)
+        sums = ndi.sum_labels(mask_high, labels_low, num_range)
+        connected_to_high = sums > 0
+        thresholded = connected_to_high[labels_low].astype('uint8')
+        return thresholded.sum(), mask_high
+
+    def test_iter_hyst(self):
+        image_details = self.file_list[0]
+        print(image_details[1])
+        image = io.imread(image_details[0])
+        gray_image = self._grayscale(image)
+        low_thresh, valid_low = self._low_select(gray_image)
+        orig_start_time = time.process_time()
+        intens1, voxels1 = self._iterate_hysteresis(gray_image, low_thresh)
+        orig_end_time = time.process_time()
+        eff_start_time = time.process_time()
+        intens2, voxels2 = self._efficient_hysteresis_iterative(gray_image, low_thresh)
+        eff_end_time = time.process_time()
+        print("Time difference:\n" + str(orig_end_time - orig_start_time) + "s original\n" + str(eff_end_time - eff_start_time) + "s Efficient")
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        ax1.plot(intens1, voxels1)
+        ax2.plot(intens2, voxels2)
+        ax1.set_title("Original")
+        ax2.set_title("New")
+        plt.show()
+
     def explore_distance_metrics(self):
         """
         This method determines the distances between the invert and logistic versions for each option. These metrics are put into a dataframe and the average
         across the samples is determined for each option.
         :return:
         """
+        if len(self.image_paths) == 0:
+            self.process_images()
         self._compare_threshold_differences()
         categories = list(self.distance_metrics.columns)
         categories.remove('Sample')
@@ -577,6 +646,8 @@ class AutoThresholder:
                             tifffile.imwrite(save_path + f[1].split('.tif')[0] + "ThreshType" + thresh_type + "Option" + str(thresholds[2]) +
                                              ".tif", thresholed_image, imagej=True)
         else:
+            self.process_images()
+            progress_count = 0
             for sample, stats in self.sample_thresholds.items():
                 image_stack = io.imread(self.image_paths[sample])
                 grayscale_stack = self._grayscale(image_stack)
@@ -587,18 +658,77 @@ class AutoThresholder:
                     low_thresh = float(threshes["Low"])
                     for thresh_types, thresh in threshes["High"].items():
                         for options, option_results in thresh.items():
-                            image_mask = self._threshold_image(img, low_thresh, float(option_results)).astype("int")
+                            image_mask = self._threshold_image(img, low_thresh, low_thresh+float(option_results)).astype("int")
                             thresholed_image = (image_mask*img).astype("uint8")
-                            tifffile.imwrite(save_path + sample.split('.tif')[0] + "ThreshType" + thresh_types + "Option" + options +
+                            tifffile.imwrite(save_path + sample.split('.tif')[0] + "-ThreshType#" + thresh_types + "-Option#" + options +
                                              ".tif", thresholed_image, imagej=True)
+                progress_count += 1
+                if progress_count == 1:
+                    print("Finished with 1 sample.")
+                else:
+                    print("Finished with " + str(progress_count) + " samples.")
+
+    def threshold_permutations(self, specific_files, steepness, power, save_path):
+        if type(steepness) is not list:
+            steepness = [steepness]
+        if type(power) is not list:
+            power = [power]
+        threshold_recording = {}
+        for p in power:
+            for k in steepness:
+                for f in self.file_list:
+                    if f[1] in specific_files:
+                        image = io.imread(f[0])
+                        gray_image = self._grayscale(image)
+                        image_set = self._timeframe_sep(gray_image, f[1])
+                        for img in image_set:
+                            high_threshes = self._specific_thresholds(img, ["Inverted"], [0, 1, 2], steepness=k, power=p)
+                            self._dict_for_json([f[1], "High", (p, k)], high_threshes["Logistic"], threshold_recording)
+                            if high_threshes is not None:
+                                for thresh_type, thresholds in high_threshes.items():
+                                    image_mask = self._threshold_image(img, thresholds[0], thresholds[1]).astype("int")
+                                    thresholed_image = (img * image_mask).astype("uint8")
+                                    tifffile.imwrite(save_path + f[1].split('.tif')[0] + "-Steep#" + str(k) + "-Power#" + str(p) + "-Option#" +
+                                                     str(thresholds[2]) + ".tif", thresholed_image, imagej=True)
+                self.sample_thresholds = {}
+        with open(save_path + "TestResults.json", 'w') as j:
+            json.dump(threshold_recording, j)
+
+    def _dict_for_json(self, key, value, dictionary):
+        val_holder = value
+        for v in list(value):
+            if type(value[v]) is not list or not dict:
+                val_holder[v] = str(value[v])
+        self._dict_key_extend(key, val_holder, dictionary)
+
+    def _dict_key_extend(self, key, value, dictionary):
+        """
+        This method will extend a dictionary when needed or step down a dictionary to add a value.
+        :param key: This will be a list of the keys. The order defines the order of keys in the nested dict
+        :param value: This will be assigned to the last key in the nested dictionaries
+        :param dictionary: This is the source dictionary to be referenced
+        :return:
+        """
+        if len(key) > 1:
+            key0 = key[0]
+            if key0 not in dictionary:
+                dictionary[key0] = {}
+            self._dict_key_extend(key[1:], value, dictionary)
+
+        else:
+            dictionary[key[0]] = value
+            return
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     threshold_comparer = AutoThresholder(input_path)
-    threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
+    # threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
     # threshold_comparer.process_images()
-    threshold_comparer.get_threshold_results()
+    # threshold_comparer.get_threshold_results()
     # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
     # threshold_comparer.get_threshold_results()
     # threshold_comparer.preview_thresholds_options(True)
     # threshold_comparer.explore_distance_metrics()
+    # threshold_comparer.threshold_images("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Thresholded\\", version=[0, 1, 2], excluded_type=[])
+    # threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 10, 14], [0.5, 1, 1.5], "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")
+    threshold_comparer.test_iter_hyst()
