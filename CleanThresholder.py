@@ -20,11 +20,11 @@ class AutoThresholder:
         self.filenames = []
         self.deconvolved_files = None
         self.deconvolved_path = deconvolved_paths
+        self.image_paths = {}
         self._get_file_list()
         if deconvolved_paths is not None:
             self._get_deconvolved_files()
         self.sample_thresholds = {}
-        self.image_paths = {}
         self.distance_metrics = None
 
     def _get_file_list(self):
@@ -37,12 +37,15 @@ class AutoThresholder:
         if self.deconvolved_path is None:
             self.file_list = [[indiv_paths + f, f] for indiv_paths in self.input_path for f in listdir(indiv_paths)
                               if isfile(join(indiv_paths, f)) and f.endswith('.tif')]
+            self.image_paths = {f: indiv_paths + f for indiv_paths in self.input_path for f in listdir(indiv_paths)
+                                if isfile(join(indiv_paths, f)) and f.endswith('.tif')}
         else:
             for indiv_paths in self.input_path:
                 for f in listdir(indiv_paths):
                     if isfile(join(indiv_paths, f)) and f.endswith('.tif'):
                         self.file_list.append([indiv_paths + f, f])
                         self.filenames.append(f)
+                        self.image_paths[f] = indiv_paths + f
 
     def _get_deconvolved_files(self):
         """
@@ -73,13 +76,16 @@ class AutoThresholder:
         :param filename:
         :return:
         """
+        image = image.astype('uint8')
         if image.shape[-1] == image.shape[-2]:
             # X and Y axis are identical
             if len(image.shape) > 3 or self.deconvolved_files is None:
-                return [image]
+                image = image[None, ...]
+                return image
             else:
                 if filename in self.deconvolved_files:
                     deconvolve_file = io.imread(self.deconvolved_files[filename])
+                    deconvolve_file
                     deconvolve_shape = deconvolve_file.shape
                     if len(deconvolve_shape) > 3:
                         if deconvolve_shape[-1] != deconvolve_shape[-2] and deconvolve_shape[-1] == 3 and deconvolve_shape[-3] == deconvolve_shape[-2]:
@@ -89,11 +95,20 @@ class AutoThresholder:
                     else:
                         time_res = deconvolve_shape[0]
                         z_res = deconvolve_shape[1]
-                        timeframes = []
+                        timeframe_shape = tuple([time_res, z_res, image.shape[-2], image.shape[-1]])
+                        timeframes = np.zeros(timeframe_shape)
+                        # print("Deconvolved shape", deconvolve_shape)
+                        t_indexes = np.arange(time_res)
+                        precise_indexes = np.array([np.arange(pi * z_res, pi * z_res + z_res) for pi in range(time_res)])
+                        '''print("T index size", len(t_indexes))
+                        print("Precise index size", precise_indexes.shape)'''
+                        timeframes[t_indexes] = image[precise_indexes]
+                        '''print("First Check:", timeframes.shape)
+                        timeframes = np.zeros(timeframe_shape)
                         for t in range(time_res):
                             t_lower = t * z_res
                             t_upper = t * z_res + z_res
-                            timeframes.append(image[t_lower:t_upper])
+                        timeframes[t] = image[t_lower:t_upper]'''
                         return timeframes
                 else:
                     return None
@@ -116,7 +131,7 @@ class AutoThresholder:
                 print("Low thresh has been acquired")
                 if valid_low:
                     iterate_start_time = time.process_time()
-                    intens, voxels = self._iterate_hysteresis(img, low_thresh)
+                    intens, voxels = self._efficient_hysteresis_iterative(img, low_thresh)
                     iterate_end_time = time.process_time()
                     print("Hysteresis Iteration took: " + str(iterate_end_time - iterate_start_time) + "s")
                     print("Cumulative Hysteresis Determined")
@@ -133,8 +148,8 @@ class AutoThresholder:
                     for t in options:
                         print("Option " + str(t) + " is being processed")
                         high_invert, high_logistic = self._logist_invert_compare(mving_slopes, voxels, steepness, t)
-                        inverted_threshes[t] = str(high_invert)
-                        logistic_threshes[t] = str(high_logistic)
+                        inverted_threshes[t] = str(low_thresh + high_invert)
+                        logistic_threshes[t] = str(low_thresh + high_logistic)
                         print("Option completed")
                     if filename not in self.sample_thresholds:
                         self.sample_thresholds[filename] = {}
@@ -144,19 +159,25 @@ class AutoThresholder:
     def _specific_thresholds(self, image, excluded_type, thresh_options, steepness=6, power=1):
         low_thresh, valid_low = self._low_select(image)
         if valid_low:
-            intens, voxels = self._iterate_hysteresis(image, low_thresh)
+            intens, voxels = self._efficient_hysteresis_iterative(image, low_thresh)
             intens = intens[:-1]
             voxels = voxels[:-1]
             slopes, slope_points = self._get_slope(intens, voxels)
             mving_slopes = self._moving_average(slopes, window_size=8)
+            voxels = np.power(np.array(voxels), power)
             threshold_results = {}
+            if "Inverted" not in excluded_type:
+                threshold_results["Inverted"] = {}
+            if "Logistic" not in excluded_type:
+                threshold_results["Logistic"] = {}
+
             for t in thresh_options:
-                if "Inverted" not in excluded_type:
+                if "Inverted" in threshold_results:
                     high_invert = self._inverted_thresholding(mving_slopes, voxels, t)
-                    threshold_results["Inverted"] = [low_thresh, high_invert, t]
-                if "Logistic" not in excluded_type:
+                    threshold_results["Inverted"][t] = [low_thresh, low_thresh + high_invert, t]
+                if "Logistic" in threshold_results:
                     high_logistic = self._logistic_thresholding(mving_slopes, voxels, steepness, t)
-                    threshold_results["Logistic"] = [low_thresh, high_logistic, t]
+                    threshold_results["Logistic"][t] = [low_thresh, low_thresh + high_logistic, t]
             return threshold_results
         else:
             return None
@@ -257,6 +278,7 @@ class AutoThresholder:
         normal_knee = self._testing_knee(img, log_hist=False, sensitivity=0.2)
         log_knee = self._testing_knee(img, log_hist=True, sensitivity=0.2)
         otsu_thresh = threshold_otsu(img)
+        print("Normal Knee:", normal_knee, "Log Knee:", log_knee, "Otsu Thresh:", otsu_thresh)
         valid = True
         if otsu_thresh <= normal_knee:
             chosen_knee = normal_knee
@@ -339,8 +361,8 @@ class AutoThresholder:
         return logist_centroid
 
     def _inverted_thresholding(self, slopes, voxels, weighted_option=0):
-        vox_max = max(voxels)
-        vox_weight = [vw / vox_max for vw in voxels[:-1]]
+        vox_max = voxels.max()
+        vox_weight = voxels/vox_max
 
         invert_rescaled, invert_dict = self._invert_rescaler(slopes)
         invert_weighted = self._apply_weights(invert_rescaled, slopes)
@@ -441,23 +463,34 @@ class AutoThresholder:
             json.dump(self.sample_thresholds, j)
 
     def _threshold_image(self, image, low_thresh, high_thresh):
-        if high_thresh < low_thresh:
+        if high_thresh <= low_thresh:
             print("High thresh too low:", high_thresh)
             high_thresh = high_thresh + low_thresh
         thresholded_image = apply_hysteresis_threshold(image, low_thresh, high_thresh).astype("int")
         return thresholded_image
 
     def _rgb_overlay(self, image, low_thresh, high_threshs):
+        print(high_threshs)
         zero_template = np.zeros_like(image)
         image_set = []
         for i in ['0', '1', '2']:
             if i in high_threshs:
-                thresholded_image = self._threshold_image(image, float(low_thresh), float(low_thresh) + float(high_threshs[i]))
+                thresholded_image = self._threshold_image(image, float(low_thresh), float(high_threshs[i]))
                 image_set.append(thresholded_image)
             else:
                 image_set.append(zero_template)
         rgb_overlayed = np.stack(image_set, axis=-1)
         return rgb_overlayed
+
+    def _orig_mask_mip(self, image, low_thresh, high_thresh):
+        thresholded_image = self._threshold_image(image, float(low_thresh), float(high_thresh)).astype('uint8')
+        thresh_mip = (np.amax(thresholded_image, axis=0)*image.max())
+        orig_mip = np.amax(image, axis=0)
+        zero_layer = np.zeros_like(thresh_mip)
+        orig_rgb = np.stack((orig_mip, orig_mip, orig_mip), axis=-1)
+        thresh_rgb = np.stack((thresh_mip, zero_layer, zero_layer), axis=-1)
+        overlayed_mip = np.clip(orig_rgb*0.65 + thresh_rgb*0.35, 0, np.max(image)).astype('uint8')
+        return overlayed_mip
 
     def preview_thresholds_options(self, mip=False):
         self.process_images()
@@ -678,28 +711,53 @@ class AutoThresholder:
             for k in steepness:
                 for f in self.file_list:
                     if f[1] in specific_files:
+                        print(f[1])
                         image = io.imread(f[0])
                         gray_image = self._grayscale(image)
                         image_set = self._timeframe_sep(gray_image, f[1])
-                        for img in image_set:
-                            high_threshes = self._specific_thresholds(img, ["Inverted"], [0, 1, 2], steepness=k, power=p)
+                        for i in range(image_set.shape[0]):
+                            high_threshes = self._specific_thresholds(image_set[i], ["Inverted"], [0, 1, 2], steepness=k, power=p)
                             self._dict_for_json([f[1], "High", (p, k)], high_threshes["Logistic"], threshold_recording)
+                            steep_label = str(k) if k/10 >= 1 else "0" + str(k)
                             if high_threshes is not None:
                                 for thresh_type, thresholds in high_threshes.items():
-                                    image_mask = self._threshold_image(img, thresholds[0], thresholds[1]).astype("int")
-                                    thresholed_image = (img * image_mask).astype("uint8")
-                                    tifffile.imwrite(save_path + f[1].split('.tif')[0] + "-Steep#" + str(k) + "-Power#" + str(p) + "-Option#" +
-                                                     str(thresholds[2]) + ".tif", thresholed_image, imagej=True)
+                                    for opt, details in thresholds.items():
+                                        thresholed_image = self._orig_mask_mip(image_set[i], details[0], details[1])
+                                        '''image_mask = self._threshold_image(image_set[i], thresholds[0], thresholds[0] + thresholds[1]).astype("int")
+                                        thresholed_image = (image_set[i] * image_mask).astype("uint8")'''
+                                        io.imsave(save_path + f[1].split('.tif')[0] + "-Steep#" + steep_label + "-Power#" + str(p) + "-Option#" +
+                                                         str(opt) + ".tif", thresholed_image)
                 self.sample_thresholds = {}
+        print(threshold_recording)
         with open(save_path + "TestResults.json", 'w') as j:
             json.dump(threshold_recording, j)
 
     def _dict_for_json(self, key, value, dictionary):
-        val_holder = value
-        for v in list(value):
-            if type(value[v]) is not list or not dict:
-                val_holder[v] = str(value[v])
+        val_holder = self._list_to_string(value)
+        print("Recorded Value", val_holder)
         self._dict_key_extend(key, val_holder, dictionary)
+
+    def _list_to_string(self, structure):
+        if type(structure) is list:
+            results = []
+            for l in structure:
+                if type(l) is list or type(l) is dict:
+                    result = self._list_to_string(l)
+                else:
+                    result = str(l)
+                results.append(result)
+            return results
+        elif type(structure) is dict:
+            results = {}
+            for k, v in structure.items():
+                if type(v) is list or type(v) is dict:
+                    results[k] = self._list_to_string(v)
+                else:
+                    results[k] = str(v)
+            return results
+        else:
+            return str(structure)
+
 
     def _dict_key_extend(self, key, value, dictionary):
         """
@@ -719,6 +777,7 @@ class AutoThresholder:
             dictionary[key[0]] = value
             return
 
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     threshold_comparer = AutoThresholder(input_path)
@@ -730,5 +789,6 @@ if __name__ == "__main__":
     # threshold_comparer.preview_thresholds_options(True)
     # threshold_comparer.explore_distance_metrics()
     # threshold_comparer.threshold_images("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Thresholded\\", version=[0, 1, 2], excluded_type=[])
-    # threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 10, 14], [0.5, 1, 1.5], "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")
-    threshold_comparer.test_iter_hyst()
+    threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 10, 14], [0.5, 1, 1.5],
+                                              "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")
+    # threshold_comparer.test_iter_hyst()

@@ -128,6 +128,7 @@ class synth_data_gen:
         :return: The coordinates with the determined noise values
         """
         #What if the average of surrounding pixels values is weighted by some decaying curve which decreases as the pixel gets further from the structure centre?
+        print("slope", slope, "thickness", thickness)
         estimate_width = thickness/0.997
         sigma = estimate_width/(3+slope)
         bins = np.linspace(0, int(thickness/2)+2, int(thickness/2)+2)
@@ -142,6 +143,11 @@ class synth_data_gen:
         io.imshow(test_layer)
         plt.show()'''
         #If "branches" is a list of branches which have their own respective list of coordinates and magnitudes then encapsulate in a list
+        print("Branches dimensions:", len(branches))
+        # self._branches_to_tree(branches)
+        zeros_shape = [len(branches)] + list(self.original_shape)
+        holder_array = np.zeros(zeros_shape)
+        count = 0
         for branch, branch_mag in branches.items():
             branch_layer = np.zeros(shape=self.original_shape)
             '''volume_dist_dicts = self.recursive_grow_radiate(branch, len(bins)-2)
@@ -154,7 +160,9 @@ class synth_data_gen:
             branch_layer[patch_coords[:, 0], patch_coords[:, 1]] = patch_distances
             branch_layer = branch_layer / np.max(branch_layer)
             branch_layer[branch[0], branch[1]] = 1
-            branch_layers.append(branch_layer * branch_mag)
+            #branch_layers.append(branch_layer * branch_mag)
+            holder_array[count] = branch_layer * branch_mag
+            count += 1
             '''branch_layer[coords[:, 0], coords[:, 1]] = distances
             branch_layer = branch_layer/np.max(branch_layer)
             branch_layer[branch[0], branch[1]] = 1
@@ -165,8 +173,43 @@ class synth_data_gen:
             test_layer[coords[:, 0], coords[:, 1]] = test_ones
             io.imshow(test_layer)
             plt.show()'''
-        branch_volumes = np.amax(np.stack(branch_layers, axis=0), 0)
+        #stacked = np.stack(branch_layers, axis=0)
+        branch_volumes = np.amax(holder_array, 0)
         return branch_volumes
+
+    def efficient_volume(self, branches, slope, thickness=10):
+        """
+        This is intended to be a more efficient version. Would currently need a better version of applying the circular region/patch along the branch for it
+        to be viable. (A vectorized approach ideally). Padding the boundary by the thickness or thickness/2 will avoid out of region issues and then simply
+        remove the padding.
+        :param branches:
+        :param slope:
+        :param thickness:
+        :return:
+        """
+        estimate_width = thickness/0.997
+        sigma = estimate_width/(3+slope)
+        bins = np.linspace(0, int(thickness/2)+2, int(thickness/2)+2)
+        mu = 0
+        dens = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
+        circle_patch = self.build_radius(len(bins)-2)
+        tree = self._branches_to_tree(branches)
+
+    def _branches_to_tree(self, branches):
+        zeros_shape = [len(branches)] + list(self.original_shape)
+        holder_array = np.zeros(zeros_shape)
+        holder_array2 = np.zeros(self.original_shape)
+        count = 0
+        coords = tuple(np.array(list(branches)).T)
+        mags = np.array(list(branches.values()))
+        holder_array2[coords] = mags
+        plt.imshow(holder_array2)
+        plt.show()
+        for branch, branch_mag in branches.items():
+            holder_array[count, branch[0], branch[1]] = branch_mag
+        tree = np.amax(holder_array, axis=0)
+        plt.imshow(tree)
+        plt.show()
 
     def recursive_grow_radiate(self, centre, max_dist, current_coords=None):
         already_seen = []
@@ -539,12 +582,6 @@ class synth_data_gen:
             step += 1
         return branch_values
 
-    def branch_cap2(self, branch_line):
-        y_min_max = [0, self.original_shape]
-        x_min_max = [0, self.original_shape]
-
-
-
     def branch_cap(self, coord, y_range, x_range, orient):
         x_coord = coord[0]
         y_coord = coord[1]
@@ -869,8 +906,9 @@ class synth_data_gen:
         middle = (int(self.original_shape[0]/2), int(self.original_shape[1]/2))
         peak, branch_length = int(self.original_shape[0] / 4), int(self.original_shape[0] / 4)
         complex_branch_struct = self.complex_structures(middle, branch_length, 255, 0, core_branch_num=20, core_rot=0, second_centre=[0.7],
-                                                        second_branch_num=[3], second_len=[0.25], second_peak=170,
+                                                        second_branch_num=[2], second_len=[0.25], second_peak=170,
                                                         second_kwargs=[{"Steepness": 3}], second_perp=True, second_angle=[270])
+        # print(tuple(np.array(list(complex_branch_struct)).T))
         start_time = time.process_time()
         complex_volume = self.volume_generation(complex_branch_struct, 0, 50)
         end_time = time.process_time()
@@ -878,19 +916,23 @@ class synth_data_gen:
         complex_blur = gaussian(complex_volume, 1)
         '''io.imshow(complex_blur)
         plt.show()'''
+        print(np.array_equal(complex_blur[complex_blur > value], complex_blur[np.where(complex_blur > value)]))
+        print("Boolean check complete")
+        ravel_test = complex_blur.ravel()
+        print("ravel Test", ravel_test.shape)
         above_high = np.greater(complex_blur, value)
         coordinates = np.where(complex_blur > value)
         valid_values = np.sum(complex_blur > value)
         print("Coords", coordinates[0].size, valid_values)
         zero_template = np.zeros_like(complex_blur)
         result = complex_blur[coordinates[0], coordinates[1]]
-        print(result.shape)
+        ''''print(result.shape)
         print(type(np.where(complex_blur > value)))
         # zero_template[above_high] = complex_blur[above_high]
         zero_template[np.where(complex_blur > value)] = complex_blur[np.where(complex_blur > value)]
         print(zero_template.shape)
-        '''io.imshow(zero_template)
-        plt.show()'''
+        io.imshow(zero_template)
+        plt.show()
         #boolean1 = complex_blur[np.where(complex_blur > value)] > value + 10
         bool1Begin = time.process_time_ns()
         boolean1 = np.greater(complex_blur, value)
@@ -912,16 +954,58 @@ class synth_data_gen:
         zero_template2[boolean1] = complex_blur[boolean1]
         print(zero_template2)
         io.imshow(zero_template2)
-        plt.show()
+        plt.show()'''
         '''bool_image = complex_blur[coordinates[0]]
         io.imshow(bool_image)
         plt.show()'''
+
+    def generate_structure_sets(self, list_of_structures, save_cond=False, save_path=None):
+        """
+        This function will combine multiple complex structure sets into one 2D image. The input is a list of dicts where the dicts need to have the arguments
+        for self.complex_structures.
+        Each item in the list of structures must be a dictionary with keys such as: (core_centre, core_length, core_peak, core_scaling, core_branch_num,
+        second_centre, second_branch_num, second_len, second_peak, second_kwargs, core_rot, second_perp, second_angle, second_pattern,
+        second_scaling, second_len_ratio).
+        int: core_centre, core_length, core_peak, core_scaling, core_branch_num, core_rot
+        list: second_centre, second_branch_num, second_len, second_peak, second_kwargs, second_perp, second_angle, second_pattern, second_scaling, second_len_ratio
+        kwargs: steepness, shallowness, pattern, decay, stepsize
+        The list of structures items must also contain a slope, thickness, sigma items.
+        :param list_of_structures: list of dicts
+        :return:
+        """
+        for los in list_of_structures:
+            sigma = 1
+            blur_params = {}
+            for k in ['slope', 'thickness']:
+                blur_params[k] = los.pop(k)
+            if 'sigma' in los:
+                sigma = los.pop('sigma')
+            branch_struct = self.complex_structures(**los)
+            blur_params['branches'] = branch_struct
+            complex_volume = self.volume_generation(**blur_params)
+            blurred_image = gaussian(complex_volume, sigma)
+            self.synthetic_image = np.maximum(self.synthetic_image, blurred_image)
+
+        if not save_cond:
+            io.imshow(self.synthetic_image)
+            plt.show()
+        else:
+            print("Set to save")
+
+        if save_cond and save_path is not None:
+            io.imsave(save_path, self.synthetic_image)
+
 
 def greater_than_test(image, value, prior):
     boolean_test = np.greater(image, value, where=prior)
 
 if __name__ == "__main__":
-    branch_test = synth_data_gen("", (600, 600))
-    #branch_test.test_function([0, 1, 2, 3, 4])
-    #branch_test.boolean_check(50)
-    print(list(range(10, 100)))
+    branch_test = synth_data_gen("", (200, 200))
+    '''struct1 = {"core_centre":(600, 400), "core_length": 100, "core_peak": 200, "core_scaling": 0, "core_branch_num": 4, "second_centre": 0.8,
+               "second_branch_num": 2, "second_len": 0.2, "second_peak": 180, "second_kwargs": [{"Steepness": 3}], "slope": 0, "thickness": 30, 'sigma': 1}
+    struct2 = {"core_centre": (200, 700), "core_length": 100, "core_peak": 200, "core_scaling": 0, "core_branch_num": 4, "second_centre": 0.8,
+               "second_branch_num": 2, "second_len": 0.2, "second_peak": 180, "second_kwargs": [{"Steepness": 3}], "core_rot": 45,
+               "slope": 0, "thickness": 30, 'sigma': 1}
+    structures = [struct1, struct2]
+    branch_test.generate_structure_sets(structures)'''
+    branch_test.boolean_check(10)
