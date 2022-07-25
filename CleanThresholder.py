@@ -767,14 +767,20 @@ class AutoThresholder:
         :param dictionary: This is the source dictionary to be referenced
         :return:
         """
+        key0 = key[0]
+        if type(key0) is tuple:
+            key0 = ""
+            for i in range(len(key[0])):
+                key0 += str(key[0][i])
+                if i != len(key[0]):
+                    key0 += " "
         if len(key) > 1:
-            key0 = key[0]
             if key0 not in dictionary:
                 dictionary[key0] = {}
-            self._dict_key_extend(key[1:], value, dictionary)
+            self._dict_key_extend(key[1:], value, dictionary[key0])
 
         else:
-            dictionary[key[0]] = value
+            dictionary[key0] = value
             return
 
 
@@ -789,6 +795,7 @@ if __name__ == "__main__":
     # threshold_comparer.preview_thresholds_options(True)
     # threshold_comparer.explore_distance_metrics()
     # threshold_comparer.threshold_images("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Thresholded\\", version=[0, 1, 2], excluded_type=[])
-    threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 10, 14], [0.5, 1, 1.5],
+    # "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"
+    threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 50], [1],
                                               "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")
     # threshold_comparer.test_iter_hyst()

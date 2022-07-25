@@ -22,12 +22,28 @@ class threshRACC(AutoThresholder):
         self.option = [option] if type(option) is not list else option
         self.sample_pairs = {}
         self.unmatched_samples = []
+        self.invalid_samples = []
         AutoThresholder.__init__(self, input_paths, deconv_paths)
 
-    def step_through_files(self):
-        for f in self.file_list:
-            print(f[1])
-            thresholded_image = self._threshold_one(f[0], f[1])
+    def apply_RACC(self, save_path=None, threshold_list=None):
+        pairs = self._get_sample_pairs()
+        print(pairs)
+        for k, p in pairs.items():
+            print("Sample:", k)
+            if type(p) is tuple:
+                image1, thresholds1 = self._threshold_one(p[0][0], p[0][1])
+                list_set1 = set(list(thresholds1))
+                image2, thresholds2 = self._threshold_one(p[1][0], p[1][1])
+                list_set2 = set(list(thresholds2))
+                print(list_set2)
+                shared_values = list_set1.intersection(list_set2)
+                print(shared_values)
+                for i in shared_values:
+                    racc_results = self.RACC([thresholds1[i], thresholds2[i]], image1[i], image2[i], 45, 95, False)
+                    io.imshow(np.amax(racc_results, axis=0))
+                    plt.show()
+                    if save_path is not None:
+                        io.imsave(save_path + k + ".tif")
 
     def _threshold_one(self, file_path, filename):
         image = io.imread(file_path)
@@ -35,14 +51,19 @@ class threshRACC(AutoThresholder):
         gray_image = self._grayscale(image)
         image_set = self._timeframe_sep(gray_image, filename)
         image_holder = np.zeros_like(image_set)
+        image_thresholds = {}
+        print("Timeframes:", image_set.shape[0])
         for i in range(image_set.shape[0]):
             high_threshes = self._specific_thresholds(image_set[i], ["Inverted"], self.option, steepness=self.steepness, power=self.power)
+            print(high_threshes)
             if high_threshes is not None:
                 for thresh_type, thresholds in high_threshes.items():
-                    image_mask = self._threshold_image(image_set[i], thresholds[0], thresholds[1]).astype("int")
+                    thresholds_key = list(thresholds)[0]
+                    image_mask = self._threshold_image(image_set[i], thresholds[thresholds_key][0], thresholds[thresholds_key][1]).astype("int")
                     thresholed_image = (image_set[i] * image_mask).astype("uint8")
                     image_holder[i] = thresholed_image
-        return image_holder
+                    image_thresholds[i] = thresholds[thresholds_key][0]
+        return image_holder, image_thresholds
 
     def RACC(self, thresholds, ch1, ch2, value, percentage, calculated):
         # Preprocessing and setup
@@ -330,16 +351,17 @@ class threshRACC(AutoThresholder):
 
     def _get_sample_pairs(self):
         im_path_keys = list(self.image_paths)
-        print(im_path_keys)
         sample_set = {}
         sample_combos = {}
         for f in im_path_keys:
             full_sample_name = f.split("C=")
             sample_name = full_sample_name[0]
             channel_name = full_sample_name[1].split(".")[0]
+            if "T" in channel_name:
+                channel_name = channel_name.split("T")[0]
             if sample_name not in sample_set:
                 sample_set[sample_name] = {}
-            sample_set[sample_name][channel_name] = self.image_paths[f]
+            sample_set[sample_name][channel_name] = (self.image_paths[f], f)
         for k, v in sample_set.items():
             if '1' not in v:
                 self.unmatched_samples.append(k)
@@ -354,8 +376,8 @@ class threshRACC(AutoThresholder):
 
 
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\N3\\Preprocessed\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\RACCtest\\Input\\"]
+    output_path = "C:\\RESEARCH\\Mitophagy_data\\RACCtest\\Output\\"
     deconv_path = ["C:\\RESEARCH\\Mitophagy_data\\N3\\Deconvolved\\"]
-    pipeline = threshRACC(input_path, 1, 6, 0, deconv_path)
-    pipeline._get_sample_pairs()
-    #pipeline.step_through_files(6, 1, 0)
+    pipeline = threshRACC(input_path, 1, 6, 0)
+    pipeline.apply_RACC(output_path)
