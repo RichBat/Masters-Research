@@ -297,7 +297,7 @@ class AutoThresholder:
         counts = counts[cut:]
         centers = centers[cut:]
         if log_hist:
-            counts = np.where(counts != 0, np.log10(counts), 0)
+            counts = np.log10(counts+1)
 
         safe_knee = True
         '''if filter_value is None:
@@ -691,7 +691,7 @@ class AutoThresholder:
                     low_thresh = float(threshes["Low"])
                     for thresh_types, thresh in threshes["High"].items():
                         for options, option_results in thresh.items():
-                            image_mask = self._threshold_image(img, low_thresh, low_thresh+float(option_results)).astype("int")
+                            image_mask = self._threshold_image(img, low_thresh, float(option_results)).astype("int")
                             thresholed_image = (image_mask*img).astype("uint8")
                             tifffile.imwrite(save_path + sample.split('.tif')[0] + "-ThreshType#" + thresh_types + "-Option#" + options +
                                              ".tif", thresholed_image, imagej=True)
@@ -734,7 +734,6 @@ class AutoThresholder:
 
     def _dict_for_json(self, key, value, dictionary):
         val_holder = self._list_to_string(value)
-        print("Recorded Value", val_holder)
         self._dict_key_extend(key, val_holder, dictionary)
 
     def _list_to_string(self, structure):
@@ -783,19 +782,108 @@ class AutoThresholder:
             dictionary[key0] = value
             return
 
+    def test_steep_impact(self, steepness, power=1, save_path=None):
+        result_dict = {}
+        for f in self.file_list:
+            image = io.imread(f[0])
+            gray_image = self._grayscale(image)
+            image_set = self._timeframe_sep(gray_image, f[1])
+            for t in range(image_set.shape[0]):
+                inverted_thresholds = self._specific_thresholds(image_set[t], ['Logistic'], [0, 1, 2])
+                self._dict_for_json([f[1], t, "Inverted"], inverted_thresholds["Inverted"], result_dict)
+                for k in steepness:
+                    steepness_results = self._specific_thresholds(image_set[t], ['Inverted'], [0, 1, 2], steepness=k)
+                    self._dict_for_json([f[1], t, "Logistic", k], steepness_results['Logistic'], result_dict)
+                    print(result_dict)
+        if save_path is not None:
+            with open(save_path + "SteepTest.json", 'w') as j:
+                json.dump(result_dict, j)
+
+    def _dict_to_float(self, dictionary):
+        for k, v in dictionary.items():
+            if type(v) is dict:
+                self._dict_to_float(v)
+            else:
+                dictionary[k] = float(v)
+
+    def _reshape_dict(self):
+        new_dict = {"Sample":[], "Timeframe":[], "Low Thresh":[], "ThreshType":[], "ThreshOption":[], "High Thresh":[]}
+        for k, v in self.sample_thresholds.items():
+            for time, threshes in v.items():
+                for high, threshtypes in threshes['High'].items():
+                    for options, values in threshtypes.items():
+                        new_dict["Sample"].append(k)
+                        new_dict["Timeframe"].append(time)
+                        new_dict["ThreshType"].append(high)
+                        new_dict["Low Thresh"].append(threshes['Low'])
+                        new_dict["ThreshOption"].append(options)
+                        new_dict["High Thresh"].append(values)
+        return new_dict
+
+    def _dict_to_array(self):
+        new_struct = []
+        sample_key = []
+        for k, v in self.sample_thresholds.items():
+            for time, threshes in v.items():
+                sample_list = []
+                sample_key.append(k + " - " + time)
+                for high, threshtypes in threshes['High'].items():
+                    options_list = []
+                    for options, value in threshtypes.items():
+                        options_list.append(value)
+                    sample_list.append(options_list)
+                new_struct.append(sample_list)
+        new_struct = np.array(new_struct)
+        return new_struct, sample_key
+
+    def compare_results(self, percentage_cutoff=1):
+        self._dict_to_float(self.sample_thresholds)
+        '''reshaped_dict = self._reshape_dict()'''
+        dict_array, sample_key = self._dict_to_array()
+        difference_array = dict_array[:, 1, :] - dict_array[:, 0, :]
+        '''print("**********************************************")
+        for t in range(len(sample_key)):
+            print(sample_key[t], difference_array[t])
+        print("**********************************************")'''
+        relative_change = np.abs(difference_array) > dict_array[:, 0, :]*(percentage_cutoff/100)
+        negative_change = (difference_array < 0)*relative_change
+        positive_change = (difference_array > 0)*relative_change
+        print("Relative Change")
+        self._mean_max_sum(difference_array, relative_change)
+        print("Positive Change")
+        self._mean_max_sum(difference_array, positive_change)
+        print("Negative Change")
+        self._mean_max_sum(difference_array, negative_change)
+        '''df = pd.DataFrame.from_dict(reshaped_dict)
+        type_group = df.groupby('ThreshType')
+        type_df = [type_group.get_group(x) for x in type_group.groups]'''
+        #print(type_df)
+
+    def _mean_max_sum(self, value_array, boolean_array):
+        print(np.mean(value_array, axis=0, where=boolean_array))
+        print(np.max(value_array, axis=0))
+        print(np.sum(boolean_array.astype('int'), axis=0, where=boolean_array))
+
+    def steep_sweep_analysis(self, load_path):
+
+        with open(load_path, "r") as j:
+            results = json.load(j)
+        j.close()
+        data_dict = self._dict_to_float(results)
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     threshold_comparer = AutoThresholder(input_path)
-    # threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
-    # threshold_comparer.process_images()
+    # threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
+    # threshold_comparer.process_images(steepness=50)
     # threshold_comparer.get_threshold_results()
-    # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults.json")
+    # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
     # threshold_comparer.get_threshold_results()
     # threshold_comparer.preview_thresholds_options(True)
     # threshold_comparer.explore_distance_metrics()
     # threshold_comparer.threshold_images("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Thresholded\\", version=[0, 1, 2], excluded_type=[])
     # "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"
-    threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 50], [1],
-                                              "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")
-    # threshold_comparer.test_iter_hyst()
+    '''threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 50], [1],
+                                              "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")'''
+    threshold_comparer.test_steep_impact([6, 20, 30, 40], save_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\")
+    # threshold_comparer.compare_results(4)
