@@ -8,6 +8,7 @@ import pandas as pd
 from os import listdir, makedirs
 from os.path import isfile, join, exists
 from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_li, threshold_yen, threshold_triangle, threshold_mean, gaussian
+from scipy import ndimage as ndi
 import tifffile
 from knee_locator import KneeLocator
 
@@ -24,6 +25,7 @@ class thresholding_metrics(AutoThresholder):
         self.exp_threshes = None
         self.exp_ratings = None
         self._initialise_expert_info()
+        self.expert_path = expert_path
         if expert_path is not None:
             self._extract_exp_threshes()
 
@@ -52,7 +54,6 @@ class thresholding_metrics(AutoThresholder):
         for s in sample_names:
             self.exp_threshes[s] = None
             self.exp_ratings[s] = None
-
 
     def _extract_exp_threshes(self):
         '''
@@ -92,6 +93,77 @@ class thresholding_metrics(AutoThresholder):
             return thresh_values
         return None
 
+    def _image_analysis(self, image1, image2):
+        '''
+        This method will compare the visual differences between the images provided. The images will be the intensity images.
+        :param image1:
+        :param image2:
+        :return:
+        '''
+        voxel_count_difference = np.count_nonzero(image1) - np.count_nonzero(image2)
+        if voxel_count_difference > 0:
+            larger_image = 1
+        elif voxel_count_difference < 0:
+            larger_image = 2
+        else:
+            larger_image = 0
+        voxel_intensity_difference = abs(image1 - image2)
+
+    def _structure_overlap(self, image1, image2):
+        '''
+        This method is designed to determine what labelled structures from each of the images overlap. From here the percentage overlap relative to the
+        overlapping structures complete volumes could be calculated as well as a relationship between structure aggregation? (one large overlaps with many
+        small).
+        :param image1:
+        :param image2:
+        :return:
+        '''
+        overlap_image = np.logical_and(np.greater(image1, 0), np.greater(image2, 0))
+        print("Complete overlap")
+        self._composite_image_preview(image1, image2, overlap_image)
+        overlap_regions, overlap_count = ndi.labels(overlap_image)
+        structure_seg1, structure_count1 = ndi.labels(image1)
+        structure_seg2, structure_count2 = ndi.labels(image2)
+        for over_regions in range(1, overlap_count):
+            isolated_overlap = np.where(overlap_regions == over_regions)
+            image1_overlap = structure_seg1 * isolated_overlap
+            image2_overlap = structure_seg2 * isolated_overlap
+            image1_labels = np.unique(image1_overlap).tolist()
+            image1_labels.remove(0)
+            image2_labels = np.unique(image2_overlap).tolist()
+            image2_labels.remove(0)
+            ''' This will provide the labels for the structures that fall within the overlapping zones. Relationships within the overlap zone should be 1 to 1
+            or 1 to many structures for an overlapping region. The reference image (image1) could have the same structure fall into multiple overlapping zones
+            so these respective overlaps should be aggregated prior to measurements being performed.
+            '''
+
+    def _composite_image_preview(self, image1, image2, overlap_region):
+        '''
+        This method will compose an image between the two 3D images (which will be an MIP for visualisation) with the overlap region of interest displayed.
+        The images must be 3D or 2D and grayscale
+        :param image1:
+        :param image2:
+        :param overlap_region:
+        :return:
+        '''
+        if image1.shape != image2.shape:
+            raise Exception("Image shapes do not match")
+        image_shape = list(image1.shape)
+        if len(image_shape) > 2:
+            image1 = np.amax(image1, axis=0)
+            image2 = np.amax(image2, axis=0)
+        if len(overlap_region.shape) > 2:
+            overlap_region = np.amax(overlap_region, axis=0)
+        image_shape.append(3)
+        composite_image = np.zeros(tuple(image_shape))
+        composite_image[..., 0] = image1
+        composite_image[..., 1] = image2
+        composite_image[..., 2] = overlap_region
+        io.imshow(composite_image)
+        plt.show()
+
+
+
     def _compare_with_experts(self, sample_name, values, choice=2):
         '''
         This method will receive the sample name to select the respective sample from the expert data, determine if it is present, and compare to the auto
@@ -127,7 +199,7 @@ class thresholding_metrics(AutoThresholder):
                     else:
                         comparison_results.append(None)
                 if len(comparison_results) > 1:
-                    average_expert = ev_collection/not_none_ev
+                    average_expert = (provided_value - (ev_collection/not_none_ev))
                     average_distance = ev_distances/not_none_ev
                     comparison_results.append('mean')
                     comparison_results.append([average_expert, average_distance])
@@ -183,23 +255,33 @@ class thresholding_metrics(AutoThresholder):
             ''' distances will be a list of values which can contain None values. distances is a list and contains a None value then the expert count must 
             increment
             '''
+            if "Sample" not in distance_results:
+                distance_results["Sample"] = []
+            if "Thresh" not in distance_results:
+                distance_results["Thresh"] = []
+            distance_results["Sample"].append(sample_name)
+            distance_results["Thresh"].append(thresh_type)
+
             if type(distances) is list and distances is not None:
                 for dist in distances:
-                    if not mean_check:
+                    if not mean_check and dist != "mean":
                         expert_name = "Exp" + str(expert_count)
-                        distance_results[expert_name] = dist  # this could be a None value but is not an issue, expected as it will be evaluated later
+                        if expert_name not in distance_results:
+                            distance_results[expert_name] = []
+                        distance_results[expert_name].append(dist)  # this could be a None value but is not an issue, expected as it will be evaluated later
                         expert_count += 1
-                    else:
-                        distance_results["MeanExp"] = dist[0]
-                        distance_results["ExpMean"] = dist[1]
-                    if dist == "mean":  # this check will denote that the next entry is a 2 item list for the averages across the experts
+                    elif mean_check and dist != "mean":
+                        if "MeanExp" not in distance_results:
+                            distance_results["MeanExp"] = []
+                            distance_results["ExpMean"] = []
+                        distance_results["MeanExp"].append(dist[0])
+                        distance_results["ExpMean"].append(dist[1])
+                    else:  # this check will denote that the next entry is a 2 item list for the averages across the experts
                         mean_check = True
             else:
                 distance_results["Exp1"] = None
                 distance_results["MeanExp"] = None
                 distance_results["ExpMean"] = None
-            distance_results["Sample"] = sample_name
-            distance_results["Thresh"] = thresh_type
             total_expert_count = max(total_expert_count, expert_count)  # remain unchanged after 1st thresh_type since expert count independent of thresh_type
 
         return distance_results, total_expert_count
@@ -217,11 +299,18 @@ class thresholding_metrics(AutoThresholder):
         if evaluation_type is None:
             for sample_name, sample_results in sample_values.items():
                 compared_values, expert_count = self._low_thresh_compare(sample_results, sample_name)  # make sure "Valid" will not be in the sample_results
-                for cv in list(compared_values):  # this will initialise the aggregate dictionary
-                    if cv not in aggregate_dict:
-                        aggregate_dict[cv] = []
+                number_of_entries = len(compared_values["Sample"])
+                for noe in range(number_of_entries):
+                    for cv in list(compared_values):  # this will initialise the aggregate dictionary
+                        if cv not in aggregate_dict:
+                            aggregate_dict[cv] = []
+                        aggregate_dict[cv].append(compared_values[cv][noe])
 
-    def analyze_low_thresholds(self, save_path=None):
+        pandas_view = pd.DataFrame.from_dict(aggregate_dict)
+        print(pandas_view)
+
+    def analyze_low_thresholds(self, save_path=None, experts=True):
+        values_for_experts = {}
         for f in self.file_list:
             image = io.imread(f[0])
             time_set = self._prepare_image(image, f[1])
@@ -244,6 +333,11 @@ class thresholding_metrics(AutoThresholder):
                 else:
                     self.low_thresholds[(f[1], t)] = {"Normal":normal_knee, "Log":log_knee, "Otsu":otsu_thresh, "Chosen":chosen_knee,
                                                       "Triangle":threshold_triangle(img), "Valid":valid}
+                if self.expert_path is not None:
+                    values_for_experts[f[1]] = {"Normal": normal_knee, "Log": log_knee, "Otsu": otsu_thresh,
+                                                      "Triangle": threshold_triangle(img)}
+        if experts and self.expert_path is not None:
+            self._aggregate_across_samples(values_for_experts)
         if save_path is not None:
             with open(save_path + "lw_thrsh_metrics.json", 'w') as j:
                 json.dump(self.low_thresholds, j)
