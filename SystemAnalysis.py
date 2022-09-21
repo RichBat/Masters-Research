@@ -103,6 +103,25 @@ class thresholding_metrics(AutoThresholder):
             compare_image = self._threshold_image(image, t[0], t[1])*image
             self._image_analysis(compare_image, expert_image)
 
+    def _image_difference_calculation(self, im1, im2, overlapping_structures):
+        '''
+        This method will calculate the relative volume of the overlapping regions to the root structure, compare this percentage overlap between them and
+        their volumes relative to each other. im1 and im2 must only contain the structures that are partially overlapping. Overlapping structures should
+        be a list of tuples with the first tuple element being the im1 struct and the second element being the im2 struct
+        :param im1:
+        :param im2:
+        :param overlapping_structures:
+        :return:
+        '''
+        pairing_results = {}
+        for os in overlapping_structures:
+            im1_struct = (im1 == os[0]).astype('uint8')
+            im2_struct = (im2 == os[1]).astype('uint8')
+            overlap_seg = np.logical_and(im1_struct, im2_struct)
+            im1_rel_overlap = (im1_struct * overlap_seg).sum() / im1_struct.sum()  # im1 overlap ratio
+            im2_rel_overlap = (im2_struct * overlap_seg).sum() / im2_struct.sum()  # im2 overlap ratio
+            average_struct_size = ((im1_struct.sum() + im2_struct.sum())/2)  # needs to take all of the currently overlapping structs since all in overlap zone
+
     def _image_analysis(self, image1, image2):
         '''
         This method will compare the visual differences between the images provided. The images will be the intensity images.
