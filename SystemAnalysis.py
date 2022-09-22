@@ -97,11 +97,27 @@ class thresholding_metrics(AutoThresholder):
         expert_threshold = self.exp_threshes[sample_name][0]
         expert_image = self._threshold_image(image, expert_threshold[0], expert_threshold[1])*image
         compare_threshes = []
-        compare_threshes = [tuple([expert_threshold[0], expert_threshold[1]]), tuple([expert_threshold[0], expert_threshold[1]+10]),
-                            tuple([expert_threshold[0]-5, expert_threshold[1]+10]), tuple([expert_threshold[0]+10, expert_threshold[1]+10])]
+        compare_threshes = [tuple([expert_threshold[0]-5, expert_threshold[1]+10]), tuple([expert_threshold[0]+10, expert_threshold[1]+10])]
         for t in compare_threshes:
             compare_image = self._threshold_image(image, t[0], t[1])*image
             self._image_analysis(compare_image, expert_image)
+
+    def _image_change_calculation(self, orig_image, threshes1, threshes2):
+        '''
+        This method will track the structure based changes across an image and the overlap between said image and a reference image as the thresholds are
+        tended towards the reference. The comparison of an image with it's prior self can provide reference for the spatial change relative to the original
+        thresholds specifically on the impact of both the low and high thresholds respectively. The reference image will be fixed and will be used to map
+        overlap changes from the adjusted image.
+        :param orig_image:
+        :param threshes1:
+        :param threshes2:
+        :return:
+        '''
+        im1_threshed = self._threshold_image(orig_image, threshes1[0], threshes1[1])
+        im2_threshed = self._threshold_image(orig_image, threshes2[0], threshes2[1])
+        # First use im2 as the reference image and then use im1 as the reference. First build a baseline based on the overlap of im1 and im2
+
+
 
     def _image_difference_calculation(self, im1, im2, overlapping_structures):
         '''
@@ -161,73 +177,72 @@ class thresholding_metrics(AutoThresholder):
         '''
         This method is designed to determine what labelled structures from each of the images overlap. From here the percentage overlap relative to the
         overlapping structures complete volumes could be calculated as well as a relationship between structure aggregation? (one large overlaps with many
-        small).
-        :param image1:
-        :param image2:
+        small). Secondary arguments to confer prior structure pairings might be relevant?
+        Have im1 and im2 already be labeled arrays instead. This way it is known that the labels will correspond when passed into this function for future
+        iterations.
+        :param image1: subject image that calculations are in reference to
+        :param image2: target image that the subject is compared to
         :return:
         '''
+        binary1 = image1 > 0
+        binary2 = image2 > 0
         overlap_image = np.logical_and(np.greater(image1, 0), np.greater(image2, 0))
         excluded_structures = np.logical_not(overlap_image, where=np.logical_or(np.greater(image1, 0), np.greater(image2, 0))).astype('uint8')
-        for s in range(excluded_structures.shape[0]):
-            io.imshow(excluded_structures[s]*255)
-            plt.show()
         # the where argument designates where the non-zero regions (not background) are for either image
         # if the logic below fails then it means that all structures in both images are perfectly aligned and equal in shape, volume and count
-        if np.max(excluded_structures) != 0:
-            overlap_image = overlap_image.astype('uint8')
-            print("Complete overlap")
-            # self._composite_image_preview(image1, image2, overlap_image)
-            overlap_regions, overlap_count = ndi.label(overlap_image)
-            io.imshow(np.amax(overlap_regions, axis=0))
-            plt.show()
-            structure_seg1, structure_count1 = ndi.label(image1 > 0)
-            structure_seg2, structure_count2 = ndi.label(image2 > 0)
-            # below will retrieve the labels of the image structures that are within the overlap regions
-            im1_overlap_structs = np.unique(structure_seg1*overlap_image).tolist()
-            im1_overlap_structs.remove(0)
-            im2_overlap_structs = np.unique(structure_seg2 * overlap_image).tolist()
-            im2_overlap_structs.remove(0)
-
-            im1_excluded_structs = np.unique(structure_seg1*excluded_structures).tolist()
-            im1_excluded_structs.remove(0)
-            im2_excluded_structs = np.unique(structure_seg1 * excluded_structures).tolist()
-            im2_excluded_structs.remove(0)
-            # This will look to see if there are any matched structures that spill out of the overlap region
-            im1_mismatch = set(im1_overlap_structs).isdisjoint(im1_excluded_structs)
-            im2_mismatch = set(im2_overlap_structs).isdisjoint(im2_excluded_structs)
-            print("Disjoint check:", im1_mismatch, im2_mismatch)
-            print("Partially overlapping structures:", set(im1_overlap_structs).intersection(im1_excluded_structs),
-                  set(im2_overlap_structs).intersection(im2_excluded_structs))
-            # This will be an array for the structure pairings. Currently the array will contain all structures (not just the overlapping ones)
-            paired_structures = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
-            im1_mapping = self._ordered_mapping_overlaps(im1_overlap_structs)
-            im2_mapping = self._ordered_mapping_overlaps(im2_overlap_structs)
-            print(paired_structures.shape)
-            io.imshow(np.amax(np.stack([structure_seg1*overlap_image, structure_seg2*overlap_image, np.zeros_like(overlap_image)], axis=-1), axis=0))
-            plt.show()
-            for over_regions in range(1, overlap_count):
-                isolated_overlap = np.equal(overlap_regions, over_regions).astype('uint8')
-                image1_overlap = structure_seg1 * isolated_overlap
-                image2_overlap = structure_seg2 * isolated_overlap
-                image1_label = np.unique(image1_overlap).tolist()
-                image1_label.remove(0)
-                image2_label = np.unique(image2_overlap).tolist()
-                image2_label.remove(0)
-                '''print("Structure labels present")
-                print(image1_label, image2_label)'''
+        print("Complete overlap")
+        # self._composite_image_preview(image1, image2, overlap_image)
+        overlap_regions, overlap_count = ndi.label(overlap_image)
+        structure_seg1, structure_count1 = ndi.label(binary1)  # this labeled array should be an argument
+        structure_seg2, structure_count2 = ndi.label(binary2)  # same for this labeled array
+        # below will retrieve the labels of the image structures that are within the overlap regions
+        im1_overlap_structs = np.unique(structure_seg1 * overlap_image).tolist()
+        im1_overlap_structs.remove(0)
+        im2_overlap_structs = np.unique(structure_seg2 * overlap_image).tolist()
+        im2_overlap_structs.remove(0)
+        # below is commented out. Currently all overlapping structures (partial or complete) will be tracked for historical comparison
+        im1_excluded_structs = np.unique(structure_seg1 * excluded_structures).tolist()
+        im1_excluded_structs.remove(0)
+        im2_excluded_structs = np.unique(structure_seg1 * excluded_structures).tolist()
+        im2_excluded_structs.remove(0)
+        # below will determine the structures that are currently alone with no overlapping structures
+        lonely_structs1 = set(im1_excluded_structs).difference(im1_overlap_structs)
+        lonely_structs2 = set(im2_excluded_structs).difference(im2_overlap_structs)
+        '''
+        # This will look to see if there are any matched structures that spill out of the overlap region
+        im1_mismatch = set(im1_overlap_structs).isdisjoint(im1_excluded_structs)
+        im2_mismatch = set(im2_overlap_structs).isdisjoint(im2_excluded_structs)
+        print("Disjoint check:", im1_mismatch, im2_mismatch)
+        print("Partially overlapping structures:", set(im1_overlap_structs).intersection(im1_excluded_structs),
+              set(im2_overlap_structs).intersection(im2_excluded_structs))'''
+        # This will be an array for the structure pairings. Currently the array will contain all structures (not just the overlapping ones)
+        paired_structures = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
+        im1_mapping = self._ordered_mapping_overlaps(im1_overlap_structs)
+        im2_mapping = self._ordered_mapping_overlaps(im2_overlap_structs)
+        '''io.imshow(np.amax(np.stack([structure_seg1*overlap_image, structure_seg2*overlap_image, np.zeros_like(overlap_image)], axis=-1), axis=0))
+        plt.show()'''
+        overlap_pair_volume_shared = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
+        for over_regions in range(1, overlap_count):
+            isolated_overlap = np.equal(overlap_regions, over_regions).astype('uint8')
+            image1_overlap = structure_seg1 * isolated_overlap
+            image2_overlap = structure_seg2 * isolated_overlap
+            image1_label, im1_volumes = np.unique(image1_overlap, return_counts=True)
+            image2_label, im2_volumes = np.unique(image2_overlap, return_counts=True)
+            nonzero1 = np.greater(image1_label, 0)
+            nonzero2 = np.greater(image2_label, 0)
+            if np.any(nonzero1) and np.any(nonzero2):
+                image1_label = image1_label[nonzero1]
+                im1_volumes = im1_volumes[nonzero1]
+                image2_label = image2_label[nonzero2]
+                im2_volumes = im2_volumes[nonzero2]
+                print(image1_label, image2_label, im1_volumes, im2_volumes)
                 im1_mapped = [im1_mapping[i1] for i1 in image1_label]
                 im2_mapped = [im2_mapping[i2] for i2 in image2_label]
-                paired_structures[tuple([tuple(im1_mapped), tuple(im2_mapped)])] += 1
-                '''print(paired_structures)
-                print("Just the matched structures")
-                print(paired_structures[np.nonzero(paired_structures)], np.nonzero(paired_structures))'''
-                #self._preview_overlap_isolated(image1_overlap, image2_overlap)
-                ''' This will provide the labels for the structures that fall within the overlapping zones. Relationships within the overlap zone should be 1 to 1
-                or 1 to many structures for an overlapping region. The reference image (image1) could have the same structure fall into multiple overlapping zones
-                so these respective overlaps should be aggregated prior to measurements being performed.
-                '''
-            io.imshow(paired_structures)
-            plt.show()
+                paired_structures[tuple([tuple(im1_mapped), tuple(im2_mapped)])] += (im1_volumes + im2_volumes)/2
+                ''' paired structures is a mapping of the mean volumes shared. It should be that mean_vol == im1_vol == im2_vol but the mean compensates'''
+
+        overlapping_pairs = np.nonzero(paired_structures)  # this will give the coordinates of the pairs that have some level of overlap/complete overlap
+        subject_im_labels, subject_im_volumes = np.unique(binary1, return_counts=True)  # will return the struct label list for im1 and the volumes
 
 
     def _composite_image_preview(self, image1, image2, overlap_region):
