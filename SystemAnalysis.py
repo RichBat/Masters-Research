@@ -177,11 +177,11 @@ class thresholding_metrics(AutoThresholder):
         '''
         This method is designed to determine what labelled structures from each of the images overlap. From here the percentage overlap relative to the
         overlapping structures complete volumes could be calculated as well as a relationship between structure aggregation? (one large overlaps with many
-        small). Secondary arguments to confer prior structure pairings might be relevant?
+        small). When looking at historical change then image1 must be old and image2 new threshed version
         Have im1 and im2 already be labeled arrays instead. This way it is known that the labels will correspond when passed into this function for future
         iterations.
         :param image1: subject image that calculations are in reference to
-        :param image2: target image that the subject is compared to
+        :param image2: reference image that the subject is compared to
         :return:
         '''
         binary1 = image1 > 0
@@ -216,7 +216,7 @@ class thresholding_metrics(AutoThresholder):
         print("Partially overlapping structures:", set(im1_overlap_structs).intersection(im1_excluded_structs),
               set(im2_overlap_structs).intersection(im2_excluded_structs))'''
         # This will be an array for the structure pairings. Currently the array will contain all structures (not just the overlapping ones)
-        paired_structures = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
+        paired_structures = np.zeros(tuple([structure_count1, structure_count2]))
         im1_mapping = self._ordered_mapping_overlaps(im1_overlap_structs)
         im2_mapping = self._ordered_mapping_overlaps(im2_overlap_structs)
         '''io.imshow(np.amax(np.stack([structure_seg1*overlap_image, structure_seg2*overlap_image, np.zeros_like(overlap_image)], axis=-1), axis=0))
@@ -231,18 +231,42 @@ class thresholding_metrics(AutoThresholder):
             nonzero1 = np.greater(image1_label, 0)
             nonzero2 = np.greater(image2_label, 0)
             if np.any(nonzero1) and np.any(nonzero2):
-                image1_label = image1_label[nonzero1]
-                im1_volumes = im1_volumes[nonzero1]
+                image1_label = image1_label[nonzero1]  # removes 0 (background) label from list using boolean indexing
+                im1_volumes = im1_volumes[nonzero1]  # using the same method the volume corresponding to the background is removed
                 image2_label = image2_label[nonzero2]
                 im2_volumes = im2_volumes[nonzero2]
-                print(image1_label, image2_label, im1_volumes, im2_volumes)
-                im1_mapped = [im1_mapping[i1] for i1 in image1_label]
-                im2_mapped = [im2_mapping[i2] for i2 in image2_label]
-                paired_structures[tuple([tuple(im1_mapped), tuple(im2_mapped)])] += (im1_volumes + im2_volumes)/2
+                # print(image1_label, image2_label, im1_volumes, im2_volumes)
+                ''' Below used to be used to map the structure labels to the limit range only overlapping labels. This has now been adjusted and the pairing
+                array will take all structures for each image and so this mapping is no longer needed.'''
+                '''im1_mapped = [im1_mapping[i1] for i1 in image1_label]
+                im2_mapped = [im2_mapping[i2] for i2 in image2_label]'''
+                paired_structures[tuple([tuple(image1_label.tolist()), tuple(image2_label.tolist())])] += (im1_volumes + im2_volumes)/2
                 ''' paired structures is a mapping of the mean volumes shared. It should be that mean_vol == im1_vol == im2_vol but the mean compensates'''
+        ''' The change to paired_structures indexing across the full structure list means that when reading these nonzero tuples they directly can
+        correspond to the respective image labels as opposed to requiring a mapping function to reverse the _ordered_mapping_overlaps relationship'''
+        overlapped_structures = np.nonzero(paired_structures)  # this will return the structure pairs that overlap.
+        subject_im_labels, subject_im_volumes = np.unique(structure_seg1, return_counts=True)  # will return the struct label list for im1 and the volumes
+        non_zero = np.greater(subject_im_labels, 0)
+        subject_im_labels, subject_im_volumes = subject_im_labels[non_zero], subject_im_volumes[non_zero]
+        ''' With this the structure labels that experience overlap will be stored in overlapping pairs, using overlapping pairs their values can be 
+        extracted (volumes) and subject_im_volumes can be used for percentage overlap. Prior image must be an optional argument for the reference image
+        for mapping. Must be None (default) or a positional mapping '''
 
-        overlapping_pairs = np.nonzero(paired_structures)  # this will give the coordinates of the pairs that have some level of overlap/complete overlap
-        subject_im_labels, subject_im_volumes = np.unique(binary1, return_counts=True)  # will return the struct label list for im1 and the volumes
+        def _overlap_ratios():
+            included_subject = overlapped_structures[0]  # the first dim in paired_structures is for the subject image struct labels
+            ''' included_subject should contain no 0 coords since the indices mapping to struct labels and the background is ignored (kept to zero) thus
+            will be zero for paired_structures[0, :] == paired_structures[:, 0] == 0 #### This should be the case but must be tested'''
+            '''nonzero returns a tuple of two arrays of x-coord and y-coord. x-coord will contain multiple of the same for the different y-coord pairings.
+            Any struct label not in x-coord at all means that it overlaps with no structures'''
+            excluded_subj_structs = np.setdiff1d(subject_im_labels, included_subject)  # this should return the labels of the ignored structures
+            print("Subject image structure label matches?", subject_im_labels[included_subject] == included_subject)
+            print(paired_structures.shape, len(included_subject))
+            vol_ratio = np.divide(paired_structures.T, subject_im_volumes[included_subject]).T  # the transpose is done for broadcasting. 0 < ratio <= 1
+            complete_overlap = np.greater_equal(vol_ratio, 1)  # 1 should be max
+            perfect_structs = np.nonzero(complete_overlap)[0]  # these structures are perfectly matching with the
+            ''' in vol_ratio the paired_structures with a volume of zero should be '''
+            multiple_overlaps =
+
 
 
     def _composite_image_preview(self, image1, image2, overlap_region):
