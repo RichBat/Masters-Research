@@ -264,10 +264,14 @@ class thresholding_metrics(AutoThresholder):
             vol_ratio = np.divide(paired_structures.T, subject_im_volumes[included_subject]).T  # the transpose is done for broadcasting. 0 < ratio <= 1
             complete_overlap = np.greater_equal(vol_ratio, 1)  # 1 should be max
             perfect_structs = np.nonzero(complete_overlap)[0]  # these structures are perfectly matching with the
-            ''' in vol_ratio the paired_structures with a volume of zero should be '''
-            multiple_overlaps =
-
-
+            ''' the np.divide approach could be used but where the ratio is no transposed back to get the overlap percentage relative to the reference.
+            The value of this is that the distance of the subject from the reference should also take into account the fully excluded structures on each side.
+            '''
+            subject_match_relations = {a: [] for a in np.unique(included_subject)}  # this will make the pair storage dictionary
+            pair_wise = np.argwhere(paired_structures)
+            for pw in pair_wise:
+                subject_match_relations[pw[0]].append(pw[1])
+            print("Order test:", set(list(subject_match_relations)) == set(included_subject.tolist()))
 
     def _composite_image_preview(self, image1, image2, overlap_region):
         '''
