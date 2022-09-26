@@ -102,7 +102,49 @@ class thresholding_metrics(AutoThresholder):
             compare_image = self._threshold_image(image, t[0], t[1])*image
             self._image_analysis(compare_image, expert_image)
 
-    def _image_change_calculation(self, orig_image, threshes1, threshes2):
+    def _structure_overlap_test(self):
+        im1 = np.array([[1, 1, 1, 1, 0, 0, 0, 0],
+               [1, 1, 1, 1, 0, 0, 1, 1],
+               [1, 1, 1, 1, 0, 0, 1, 1],
+               [1, 1, 1, 1, 0, 0, 1, 0],
+               [0, 0, 0, 0, 0, 0, 1, 0],
+               [0, 0, 0, 0, 1, 1, 0, 0],
+               [0, 0, 0, 1, 1, 1, 1, 0],
+               [0, 0, 0, 0, 1, 1, 0, 0],
+               ])
+        im2 = np.array([[0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 1, 1, 1, 1, 0, 1, 1],
+               [0, 1, 1, 1, 1, 0, 1, 1],
+               [0, 1, 1, 1, 1, 0, 0, 0],
+               [0, 1, 1, 1, 1, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 1, 1, 0, 0],
+               [0, 0, 0, 0, 1, 1, 0, 0],
+               ])
+        self._structure_overlap(im1, im2)
+        im3 = np.array([[1, 1, 1, 1, 0, 0, 0, 0],
+                        [1, 1, 1, 1, 0, 0, 1, 1],
+                        [1, 1, 1, 1, 0, 0, 1, 1],
+                        [1, 1, 1, 1, 0, 0, 1, 0],
+                        [0, 0, 0, 0, 0, 0, 1, 0],
+                        [1, 1, 0, 0, 1, 1, 0, 0],
+                        [1, 1, 0, 1, 1, 1, 1, 0],
+                        [1, 1, 0, 0, 1, 1, 0, 0],
+                        ])
+        im4 = np.array([[1, 1, 1, 0, 0, 0, 0, 0],
+                        [1, 0, 0, 1, 1, 0, 1, 1],
+                        [1, 0, 1, 1, 1, 0, 1, 1],
+                        [0, 1, 1, 1, 1, 0, 0, 0],
+                        [0, 1, 1, 1, 1, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 1, 1, 0, 0],
+                        [0, 0, 0, 0, 1, 1, 0, 0],
+                        ])
+        self._structure_overlap(im3, im4)
+        print("Swapped")
+        self._structure_overlap(im4, im3)
+
+    def _image_change_calculation(self, orig_image, threshes1, threshes2, step=5):
         '''
         This method will track the structure based changes across an image and the overlap between said image and a reference image as the thresholds are
         tended towards the reference. The comparison of an image with it's prior self can provide reference for the spatial change relative to the original
@@ -115,7 +157,40 @@ class thresholding_metrics(AutoThresholder):
         '''
         im1_threshed = self._threshold_image(orig_image, threshes1[0], threshes1[1])
         im2_threshed = self._threshold_image(orig_image, threshes2[0], threshes2[1])
-        # First use im2 as the reference image and then use im1 as the reference. First build a baseline based on the overlap of im1 and im2
+        low_resolution = math.ceil((abs(threshes1[0] - threshes2[0]) / step))
+        high_resolution = math.ceil((abs(threshes1[1] - threshes2[1]) / step))
+        # the resolutions will be used to build the storage mapping. For now this will store the change in an array of low_res x high_res
+        distance_log = np.zeros(tuple([low_resolution, high_resolution]))
+        # will be a single loop where high_counter=0 and distance_log[n, high_counter*step*n - n
+        offset = 0
+
+        def threshold_adjustment(thr1, thr2, low_adjust, high_adjust):
+            low_res_sh = low_adjust + thr1[0]
+            high_res_sh = high_adjust + thr1[1]
+            if (thr1[0] > thr2[0] and low_res_sh >= thr2[0]) or (thr1[0] < thr2[0] and low_res_sh <= thr2[0]):
+                low_r = low_res_sh
+            else:
+                low_r = thr2[0]
+
+            if (thr1[1] > threshes2[1] and high_res_sh >= threshes2[1]) or (thr1[1] < threshes2[1] and high_res_sh <= threshes2[1]):
+                high_r = high_res_sh
+            else:
+                high_r = thr2[1]
+            return low_r, high_r
+
+        for resol in range(low_resolution + high_resolution):
+            if resol - offset*high_resolution > high_resolution:
+                offset += 1  # this will be used to constrain the value in the distance_log indices to remain in range
+            print("Current Resolution", resol)
+            low_res_adjust = step * (resol - offset * high_resolution)  # this should return the correct low resolution
+            high_res_adjust = step * offset  # the high resolution will be the second loop typically
+            if threshes1[0] > threshes2[0]:
+                low_res_adjust *= -1
+            if threshes1[1] > threshes2[1]:
+                high_res_adjust *= -1
+            #  if the target (expert) has thresholds then the change must tend in that direction
+            low_res, high_res = threshold_adjustment(threshes1, threshes2, low_res_adjust, high_res_adjust)
+            
 
 
 
@@ -193,6 +268,9 @@ class thresholding_metrics(AutoThresholder):
         print("Complete overlap")
         # self._composite_image_preview(image1, image2, overlap_image)
         overlap_regions, overlap_count = ndi.label(overlap_image)
+        '''print("Overlap regions:", overlap_count)
+        io.imshow(overlap_regions)
+        plt.show()'''
         structure_seg1, structure_count1 = ndi.label(binary1)  # this labeled array should be an argument
         structure_seg2, structure_count2 = ndi.label(binary2)  # same for this labeled array
         # below will retrieve the labels of the image structures that are within the overlap regions
@@ -216,20 +294,25 @@ class thresholding_metrics(AutoThresholder):
         print("Partially overlapping structures:", set(im1_overlap_structs).intersection(im1_excluded_structs),
               set(im2_overlap_structs).intersection(im2_excluded_structs))'''
         # This will be an array for the structure pairings. Currently the array will contain all structures (not just the overlapping ones)
-        paired_structures = np.zeros(tuple([structure_count1, structure_count2]))
+        paired_structures = np.zeros(tuple([structure_count1+1, structure_count2+1]))
         im1_mapping = self._ordered_mapping_overlaps(im1_overlap_structs)
         im2_mapping = self._ordered_mapping_overlaps(im2_overlap_structs)
         '''io.imshow(np.amax(np.stack([structure_seg1*overlap_image, structure_seg2*overlap_image, np.zeros_like(overlap_image)], axis=-1), axis=0))
         plt.show()'''
         overlap_pair_volume_shared = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
-        for over_regions in range(1, overlap_count):
+        for over_regions in range(1, overlap_count+1):
+            print("Current region", over_regions)
             isolated_overlap = np.equal(overlap_regions, over_regions).astype('uint8')
+            '''io.imshow(isolated_overlap)
+            plt.show()'''
             image1_overlap = structure_seg1 * isolated_overlap
             image2_overlap = structure_seg2 * isolated_overlap
             image1_label, im1_volumes = np.unique(image1_overlap, return_counts=True)
             image2_label, im2_volumes = np.unique(image2_overlap, return_counts=True)
+            print("Overlapping labels:", image1_label, image2_label)
             nonzero1 = np.greater(image1_label, 0)
             nonzero2 = np.greater(image2_label, 0)
+            print("Nonzeros", nonzero1, nonzero2)
             if np.any(nonzero1) and np.any(nonzero2):
                 image1_label = image1_label[nonzero1]  # removes 0 (background) label from list using boolean indexing
                 im1_volumes = im1_volumes[nonzero1]  # using the same method the volume corresponding to the background is removed
@@ -245,25 +328,47 @@ class thresholding_metrics(AutoThresholder):
         ''' The change to paired_structures indexing across the full structure list means that when reading these nonzero tuples they directly can
         correspond to the respective image labels as opposed to requiring a mapping function to reverse the _ordered_mapping_overlaps relationship'''
         overlapped_structures = np.nonzero(paired_structures)  # this will return the structure pairs that overlap.
+        print("Overlap volumes:", paired_structures)
+        print("All volume shares:", overlapped_structures)
         subject_im_labels, subject_im_volumes = np.unique(structure_seg1, return_counts=True)  # will return the struct label list for im1 and the volumes
-        non_zero = np.greater(subject_im_labels, 0)
-        subject_im_labels, subject_im_volumes = subject_im_labels[non_zero], subject_im_volumes[non_zero]
+        print("Pre zero removal", subject_im_labels)
+        ref_im_labels, ref_im_volumes = np.unique(structure_seg2, return_counts=True)
+        '''non_zero = np.greater(subject_im_labels, 0)
+        subject_im_labels, subject_im_volumes = subject_im_labels[non_zero], subject_im_volumes[non_zero]'''
         ''' With this the structure labels that experience overlap will be stored in overlapping pairs, using overlapping pairs their values can be 
         extracted (volumes) and subject_im_volumes can be used for percentage overlap. Prior image must be an optional argument for the reference image
         for mapping. Must be None (default) or a positional mapping '''
-
         def _overlap_ratios():
             included_subject = overlapped_structures[0]  # the first dim in paired_structures is for the subject image struct labels
+            included_reference = overlapped_structures[1]
             ''' included_subject should contain no 0 coords since the indices mapping to struct labels and the background is ignored (kept to zero) thus
             will be zero for paired_structures[0, :] == paired_structures[:, 0] == 0 #### This should be the case but must be tested'''
             '''nonzero returns a tuple of two arrays of x-coord and y-coord. x-coord will contain multiple of the same for the different y-coord pairings.
             Any struct label not in x-coord at all means that it overlaps with no structures'''
             excluded_subj_structs = np.setdiff1d(subject_im_labels, included_subject)  # this should return the labels of the ignored structures
-            print("Subject image structure label matches?", subject_im_labels[included_subject] == included_subject)
+            print("Excluded structures:", excluded_subj_structs)
+            print("Subject image structure label matches?")
+            print(subject_im_labels)
+            print(subject_im_labels[included_subject])
+            print(included_subject)
+            print("################################################")
             print(paired_structures.shape, len(included_subject))
-            vol_ratio = np.divide(paired_structures.T, subject_im_volumes[included_subject]).T  # the transpose is done for broadcasting. 0 < ratio <= 1
-            complete_overlap = np.greater_equal(vol_ratio, 1)  # 1 should be max
+            over_ratio = np.zeros_like(paired_structures)
+            over_ratio[included_subject] += np.divide(paired_structures[included_subject].T, subject_im_volumes[included_subject]).T  # the transpose is done for broadcasting. 0 < ratio <= 1
+            vol_ratio = (paired_structures > 0).astype(float)
+            vol_ratio[included_subject] = (vol_ratio[included_subject].T * subject_im_volumes[included_subject]).T
+            print("Vol ratio pre division")
+            print(vol_ratio)
+            print("Vol ratio divisor")
+            print(ref_im_volumes[included_reference])
+            vol_ratio[:, included_reference] = (vol_ratio[:, included_reference] / ref_im_volumes[included_reference])
+            print("Volume ratio of overlaps")
+            print(vol_ratio)
+            print("Subject Vol Ratios")
+            print(over_ratio)
+            complete_overlap = np.greater_equal(over_ratio*vol_ratio, 1)  # 1 should be max
             perfect_structs = np.nonzero(complete_overlap)[0]  # these structures are perfectly matching with the
+            print("Perfect Matches", perfect_structs)
             ''' the np.divide approach could be used but where the ratio is no transposed back to get the overlap percentage relative to the reference.
             The value of this is that the distance of the subject from the reference should also take into account the fully excluded structures on each side.
             '''
@@ -272,6 +377,12 @@ class thresholding_metrics(AutoThresholder):
             for pw in pair_wise:
                 subject_match_relations[pw[0]].append(pw[1])
             print("Order test:", set(list(subject_match_relations)) == set(included_subject.tolist()))
+            print("Structure pairs", subject_match_relations)
+            return over_ratio, subject_match_relations
+
+        return _overlap_ratios()
+
+
 
     def _composite_image_preview(self, image1, image2, overlap_region):
         '''
@@ -483,6 +594,7 @@ class thresholding_metrics(AutoThresholder):
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\")
+    system_analyst._structure_overlap_test()
     # print(system_analyst.exp_threshes)
-    system_analyst.analyze_low_thresholds("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\")
+    # system_analyst.analyze_low_thresholds("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\")
 
