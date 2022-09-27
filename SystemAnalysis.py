@@ -140,9 +140,20 @@ class thresholding_metrics(AutoThresholder):
                         [0, 0, 0, 0, 1, 1, 0, 0],
                         [0, 0, 0, 0, 1, 1, 0, 0],
                         ])
-        self._structure_overlap(im3, im4)
-        print("Swapped")
+        im5 = np.array([[1, 1, 1, 0, 0, 0, 0, 0],
+                        [1, 0, 0, 1, 1, 0, 1, 1],
+                        [1, 0, 1, 1, 1, 1, 1, 1],
+                        [0, 1, 1, 1, 1, 0, 0, 0],
+                        [0, 1, 1, 1, 1, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 1, 1, 0, 0],
+                        [0, 0, 0, 0, 1, 1, 0, 0],
+                        ])
         self._structure_overlap(im4, im3)
+        print("Swapped")
+        self._structure_overlap(im3, im4)
+        print("Bridged")
+        self._structure_overlap(im4, im5)
 
     def _image_change_calculation(self, orig_image, threshes1, threshes2, step=5):
         '''
@@ -163,6 +174,8 @@ class thresholding_metrics(AutoThresholder):
         distance_log = np.zeros(tuple([low_resolution, high_resolution]))
         # will be a single loop where high_counter=0 and distance_log[n, high_counter*step*n - n
         offset = 0
+        print("Thresholds:", threshes1, threshes2)
+        print("Resolutions:", low_resolution, high_resolution)
 
         def threshold_adjustment(thr1, thr2, low_adjust, high_adjust):
             low_res_sh = low_adjust + thr1[0]
@@ -190,9 +203,7 @@ class thresholding_metrics(AutoThresholder):
                 high_res_adjust *= -1
             #  if the target (expert) has thresholds then the change must tend in that direction
             low_res, high_res = threshold_adjustment(threshes1, threshes2, low_res_adjust, high_res_adjust)
-            
-
-
+            print(low_res, high_res)
 
     def _image_difference_calculation(self, im1, im2, overlapping_structures):
         '''
@@ -212,6 +223,7 @@ class thresholding_metrics(AutoThresholder):
             im1_rel_overlap = (im1_struct * overlap_seg).sum() / im1_struct.sum()  # im1 overlap ratio
             im2_rel_overlap = (im2_struct * overlap_seg).sum() / im2_struct.sum()  # im2 overlap ratio
             average_struct_size = ((im1_struct.sum() + im2_struct.sum())/2)  # needs to take all of the currently overlapping structs since all in overlap zone
+
 
     def _image_analysis(self, image1, image2):
         '''
@@ -310,6 +322,7 @@ class thresholding_metrics(AutoThresholder):
             image1_label, im1_volumes = np.unique(image1_overlap, return_counts=True)
             image2_label, im2_volumes = np.unique(image2_overlap, return_counts=True)
             print("Overlapping labels:", image1_label, image2_label)
+            plt.show()
             nonzero1 = np.greater(image1_label, 0)
             nonzero2 = np.greater(image2_label, 0)
             print("Nonzeros", nonzero1, nonzero2)
@@ -366,6 +379,8 @@ class thresholding_metrics(AutoThresholder):
             print(vol_ratio)
             print("Subject Vol Ratios")
             print(over_ratio)
+            print(np.greater(over_ratio, 0).astype(int).sum(axis=0))
+            print(np.greater(over_ratio, 0).astype(int).sum(axis=1))
             complete_overlap = np.greater_equal(over_ratio*vol_ratio, 1)  # 1 should be max
             perfect_structs = np.nonzero(complete_overlap)[0]  # these structures are perfectly matching with the
             print("Perfect Matches", perfect_structs)
@@ -378,11 +393,40 @@ class thresholding_metrics(AutoThresholder):
                 subject_match_relations[pw[0]].append(pw[1])
             print("Order test:", set(list(subject_match_relations)) == set(included_subject.tolist()))
             print("Structure pairs", subject_match_relations)
-            return over_ratio, subject_match_relations
+            return over_ratio, vol_ratio, subject_match_relations
 
+        plt.figure(1)
+        io.imshow(structure_seg1)
+        plt.figure(2)
+        io.imshow(structure_seg2)
+        plt.figure(3)
+        io.imshow(overlap_image.astype('uint8')*255)
+        plt.show()
         return _overlap_ratios()
 
-
+    def _consolidate_prior_structures(self, volumes, pairings):
+        '''
+        Method to consolidate which structures are newly split/joined, to measure said split or join and to consolidate the volumes accordingly
+        :param volumes:
+        :param pairings:
+        :return:
+        '''
+        ''' np.greater(volumes, 0).astype(int).sum(axis=n) where for axis=n when n=0 then will measure splits while n=1 measures joins '''
+        pairing_count = np.greater(volumes, 0).astype(int)
+        split_check = pairing_count.sum(axis=0)
+        join_check = pairing_count.sum(axis=1)
+        ''' The split_check.sum() == join_check.sum() will hold true since the total number of pairing are the same, just some of the pairings share structs. 
+        To deal with this take the np.count_nonzero of each and if mismatched then it is known that a split or join occurred. Check for pairs that are
+        greater than one and thus have either split or joined. If np.count_nonzero for axis=1 > axis=0 then a split occurred else a join occurred'''
+        print(join_check, split_check)
+        split_structures = np.greater(split_check, 1)
+        join_structures = np.greater(join_check, 1)
+        if np.count_nonzero(join_check) == np.count_nonzero(split_check):
+            print("No new joins or splits have occurred")
+        elif np.count_nonzero(join_check) > np.count_nonzero(split_check):
+            print("Split occurred")
+        else:
+            print("Join occurred")
 
     def _composite_image_preview(self, image1, image2, overlap_region):
         '''
