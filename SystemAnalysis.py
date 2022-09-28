@@ -9,6 +9,7 @@ from os import listdir, makedirs
 from os.path import isfile, join, exists
 from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_li, threshold_yen, threshold_triangle, threshold_mean, gaussian
 from scipy import ndimage as ndi
+import seaborn as sns
 import tifffile
 from knee_locator import KneeLocator
 
@@ -18,7 +19,7 @@ from CleanThresholder import AutoThresholder
 
 class thresholding_metrics(AutoThresholder):
 
-    def __init__(self, input_paths, deconv_paths=None, expert_path=None):
+    def __init__(self, input_paths, deconv_paths=None, expert_path=None, auto_path=None):
         AutoThresholder.__init__(self, input_paths, deconv_paths)
         self.low_thresholds = {}
         self.expert_files = self._extract_expert_files(expert_path)
@@ -26,6 +27,9 @@ class thresholding_metrics(AutoThresholder):
         self.exp_ratings = None
         self._initialise_expert_info()
         self.expert_path = expert_path
+        self.automatic_thresholds = None
+        if auto_path is not None:
+            self._extract_stored_automatic(auto_path)
         if expert_path is not None:
             self._extract_exp_threshes()
 
@@ -41,6 +45,22 @@ class thresholding_metrics(AutoThresholder):
             return {'thresholds':threshold_files, 'ratings':rating_files}
         else:
             return None
+
+    def _extract_stored_automatic(self, auto_path):
+        with open(auto_path, "r") as j:
+            auto_values = json.load(j)
+        thresholds = {}
+        for sample, _timeframes in auto_values.items():
+            if sample not in thresholds:
+                thresholds[sample] = []
+            if len(_timeframes.keys()) == 1 and list(_timeframes)[0] == "0":
+                thresh = _timeframes["0"]
+                thresholds[sample].append(float(thresh["Low"]))
+                inverted_thresh = thresh["High"]["Inverted"]
+                logistic_thresh = thresh["High"]["Logistic"]
+                thresholds[sample].append([[float(inverted_thresh["0"]), float(inverted_thresh["1"]), float(inverted_thresh["2"])],
+                                           [float(logistic_thresh["0"]), float(logistic_thresh["1"]), float(logistic_thresh["2"])]])
+        self.automatic_thresholds = thresholds
 
     def _initialise_expert_info(self):
         '''
@@ -149,11 +169,22 @@ class thresholding_metrics(AutoThresholder):
                         [0, 0, 0, 0, 1, 1, 0, 0],
                         [0, 0, 0, 0, 1, 1, 0, 0],
                         ])
+        im6 = np.array([[0, 1, 1, 0, 0, 0, 0, 0],
+                        [1, 0, 0, 1, 1, 0, 1, 1],
+                        [1, 0, 1, 1, 1, 1, 1, 1],
+                        [0, 1, 1, 1, 1, 0, 0, 0],
+                        [0, 1, 1, 1, 1, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 1, 1, 0, 0],
+                        [0, 0, 0, 0, 1, 1, 0, 0],
+                        ])
         self._structure_overlap(im4, im3)
         print("Swapped")
         self._structure_overlap(im3, im4)
         print("Bridged")
         self._structure_overlap(im4, im5)
+        print("More structures")
+        self._structure_overlap(im5, im6)
 
     def _image_change_calculation(self, orig_image, threshes1, threshes2, step=5):
         '''
@@ -395,13 +426,13 @@ class thresholding_metrics(AutoThresholder):
             print("Structure pairs", subject_match_relations)
             return over_ratio, vol_ratio, subject_match_relations
 
-        plt.figure(1)
+        '''plt.figure(1)
         io.imshow(structure_seg1)
         plt.figure(2)
         io.imshow(structure_seg2)
         plt.figure(3)
         io.imshow(overlap_image.astype('uint8')*255)
-        plt.show()
+        plt.show()'''
         return _overlap_ratios()
 
     def _consolidate_prior_structures(self, volumes, pairings):
@@ -635,10 +666,136 @@ class thresholding_metrics(AutoThresholder):
             with open(save_path + "lw_thrsh_metrics.json", 'w') as j:
                 json.dump(self.low_thresholds, j)
 
+    def compare_thresholds_between(self):
+        '''
+        This method will be used to graph the low and high thresholds for the automated system and the experts for all samples
+        :return:
+        '''
+        ''' Order for expert thresholds and auto thresholds:
+        Expert thresholds: {Sample:[(low,high)]} where each Sample has a corresponding list of tuples where each tuple is a different expert. Order for experts
+        is maintained across samples
+        Auto thresholds: {Sample:[low, [[invert_high_1, invert_high_2, invert_high_3], [logistic_high_1, logistic_high_2, logistic_high_3]]] where each sample
+        has a list that is specifically ordered. The first element is the low threshold and the second element is an order list of nested lists. For the 
+        first nesting layer the first and second elements are for the inverted and logistic high thresholds respectively. Within these inverted and logistic
+        elements are lists of length three that have been nested. Element 0 of the nested list are with weighting option 0, element 1 is for weighting option 1
+        and likewise for element 2 for weighting option 2.
+        '''
+        organised_data = {"Sample": [], "Source": [], "ThreshType": [], "ThreshValue": []}
+        scatter_data = {"Sample": [], "Source": [], "High": [], "Low": [], "Row":[]}
+
+        row_separation = 5
+
+        def expert_tracking(expert_index):
+            return "Expert " + str(expert_index)
+        sample_count = 0
+        row_label = 1
+        for samples in list(self.exp_threshes):
+            sample_count += 1
+            if sample_count > row_separation:
+                row_label += 1
+                sample_count = 1
+            expert_values = self.exp_threshes[samples]
+            auto_values = self.automatic_thresholds[samples]
+            for et in range(len(self.exp_threshes[samples])):
+                if self.exp_threshes[samples][et] is not None:
+                    expert_results = expert_values[et]
+                    organised_data["Sample"].append(samples)  # for high and low threshold
+                    organised_data["Sample"].append(samples)
+                    organised_data["ThreshType"].append("Low")
+                    organised_data["ThreshValue"].append(expert_results[0])
+                    organised_data["ThreshType"].append("High")
+                    organised_data["ThreshValue"].append(expert_results[1])
+                    organised_data["Source"].append(expert_tracking(et))  # expert name for each threshold type (low & high)
+                    organised_data["Source"].append(expert_tracking(et))
+                    #  data to be used for scatterplots
+                    scatter_data["Sample"].append(samples)
+                    scatter_data["Source"].append(expert_tracking(et))
+                    scatter_data["Low"].append(expert_results[0])
+                    scatter_data["High"].append(expert_results[1])
+                    scatter_data["Row"].append(row_label)
+
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("Low")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Automated")
+            # These 6 are for the 6 automated results
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("High")
+            organised_data["ThreshValue"].append(auto_values[1][0][0])
+            organised_data["Source"].append("Inverted0")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("High")
+            organised_data["ThreshValue"].append(auto_values[1][0][1])
+            organised_data["Source"].append("Inverted1")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("High")
+            organised_data["ThreshValue"].append(auto_values[1][0][2])
+            organised_data["Source"].append("Inverted2")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("High")
+            organised_data["ThreshValue"].append(auto_values[1][1][0])
+            organised_data["Source"].append("Logistic0")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("High")
+            organised_data["ThreshValue"].append(auto_values[1][1][1])
+            organised_data["Source"].append("Logistic1")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("High")
+            organised_data["ThreshValue"].append(auto_values[1][1][2])
+            organised_data["Source"].append("Logistic2")
+            # The automatic scatter data
+            scatter_data["Sample"].append(samples)
+            scatter_data["Source"].append("Inverted0")
+            scatter_data["Low"].append(auto_values[0])
+            scatter_data["High"].append(auto_values[1][0][0])
+            scatter_data["Sample"].append(samples)
+            scatter_data["Source"].append("Inverted1")
+            scatter_data["Low"].append(auto_values[0])
+            scatter_data["High"].append(auto_values[1][0][1])
+            scatter_data["Sample"].append(samples)
+            scatter_data["Source"].append("Inverted2")
+            scatter_data["Low"].append(auto_values[0])
+            scatter_data["High"].append(auto_values[1][0][2])
+            scatter_data["Sample"].append(samples)
+            scatter_data["Source"].append("Logistic0")
+            scatter_data["Low"].append(auto_values[0])
+            scatter_data["High"].append(auto_values[1][1][0])
+            scatter_data["Sample"].append(samples)
+            scatter_data["Source"].append("Logistic1")
+            scatter_data["Low"].append(auto_values[0])
+            scatter_data["High"].append(auto_values[1][1][1])
+            scatter_data["Sample"].append(samples)
+            scatter_data["Source"].append("Logistic2")
+            scatter_data["Low"].append(auto_values[0])
+            scatter_data["High"].append(auto_values[1][1][2])
+            scatter_data["Row"].append(row_label)
+            scatter_data["Row"].append(row_label)
+            scatter_data["Row"].append(row_label)
+            scatter_data["Row"].append(row_label)
+            scatter_data["Row"].append(row_label)
+            scatter_data["Row"].append(row_label)
+
+        scatter_df = pd.DataFrame.from_dict(scatter_data)
+        organised_df = pd.DataFrame.from_dict(organised_data)
+        self._convert_to_graph(organised_df, scatter_df)
+
+    def _convert_to_graph(self, organised, scatter):
+        '''
+        This method exists to partition the compare_thresholds_between function for debugging the plots separately to the data
+        :param organised:
+        :param scatter:
+        :return:
+        '''
+        sns.set_theme()
+        sns.relplot(data=scatter, x="Low", y="High", col="Sample", row="Row", hue="Source")
+        plt.show()
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
-    system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\")
-    system_analyst._structure_overlap_test()
+    system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\",
+                                          auto_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
+    system_analyst.compare_thresholds_between()
+    # system_analyst._structure_overlap_test()
     # print(system_analyst.exp_threshes)
     # system_analyst.analyze_low_thresholds("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\")
 
