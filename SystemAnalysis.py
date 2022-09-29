@@ -682,11 +682,12 @@ class thresholding_metrics(AutoThresholder):
         '''
         organised_data = {"Sample": [], "Source": [], "ThreshType": [], "ThreshValue": []}
         scatter_data = {"Sample": [], "Source": [], "High": [], "Low": [], "Row":[]}
+        mean_auto_data = {"Sample": [], "Source": [], "High": [], "Low": []}
 
         row_separation = 5
 
         def expert_tracking(expert_index):
-            return "Expert " + str(expert_index)
+            return "Exp" + str(expert_index)
         sample_count = 0
         row_label = 1
         for samples in list(self.exp_threshes):
@@ -701,9 +702,9 @@ class thresholding_metrics(AutoThresholder):
                     expert_results = expert_values[et]
                     organised_data["Sample"].append(samples)  # for high and low threshold
                     organised_data["Sample"].append(samples)
-                    organised_data["ThreshType"].append("Low")
+                    organised_data["ThreshType"].append("ExpLow")
                     organised_data["ThreshValue"].append(expert_results[0])
-                    organised_data["ThreshType"].append("High")
+                    organised_data["ThreshType"].append("ExpHigh")
                     organised_data["ThreshValue"].append(expert_results[1])
                     organised_data["Source"].append(expert_tracking(et))  # expert name for each threshold type (low & high)
                     organised_data["Source"].append(expert_tracking(et))
@@ -713,59 +714,89 @@ class thresholding_metrics(AutoThresholder):
                     scatter_data["Low"].append(expert_results[0])
                     scatter_data["High"].append(expert_results[1])
                     scatter_data["Row"].append(row_label)
+                    # data to be used for scatterplots but the automatic high thresholds have been averaged for easier reading
+                    mean_auto_data["Sample"].append(samples)
+                    mean_auto_data["Source"].append(expert_tracking(et))
+                    mean_auto_data["Low"].append(expert_results[0])
+                    mean_auto_data["High"].append(expert_results[1])
 
-            organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("Low")
-            organised_data["ThreshValue"].append(auto_values[0])
-            organised_data["Source"].append("Automated")
             # These 6 are for the 6 automated results
             organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("High")
+            organised_data["ThreshType"].append("AutoLow")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Inv0")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("AutoHigh")
             organised_data["ThreshValue"].append(auto_values[1][0][0])
-            organised_data["Source"].append("Inverted0")
+            organised_data["Source"].append("Inv0")
+
             organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("High")
+            organised_data["ThreshType"].append("AutoLow")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Inv1")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("AutoHigh")
             organised_data["ThreshValue"].append(auto_values[1][0][1])
-            organised_data["Source"].append("Inverted1")
+            organised_data["Source"].append("Inv1")
+
             organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("High")
+            organised_data["ThreshType"].append("AutoLow")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Inv2")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("AutoHigh")
             organised_data["ThreshValue"].append(auto_values[1][0][2])
-            organised_data["Source"].append("Inverted2")
+            organised_data["Source"].append("Inv2")
+
             organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("High")
+            organised_data["ThreshType"].append("AutoLow")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Log0")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("AutoHigh")
             organised_data["ThreshValue"].append(auto_values[1][1][0])
-            organised_data["Source"].append("Logistic0")
+            organised_data["Source"].append("Log0")
+
             organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("High")
+            organised_data["ThreshType"].append("AutoLow")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Log1")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("AutoHigh")
             organised_data["ThreshValue"].append(auto_values[1][1][1])
-            organised_data["Source"].append("Logistic1")
+            organised_data["Source"].append("Log1")
+
             organised_data["Sample"].append(samples)
-            organised_data["ThreshType"].append("High")
+            organised_data["ThreshType"].append("AutoLow")
+            organised_data["ThreshValue"].append(auto_values[0])
+            organised_data["Source"].append("Log2")
+            organised_data["Sample"].append(samples)
+            organised_data["ThreshType"].append("AutoHigh")
             organised_data["ThreshValue"].append(auto_values[1][1][2])
-            organised_data["Source"].append("Logistic2")
+            organised_data["Source"].append("Log2")
             # The automatic scatter data
             scatter_data["Sample"].append(samples)
-            scatter_data["Source"].append("Inverted0")
+            scatter_data["Source"].append("Inv0")
             scatter_data["Low"].append(auto_values[0])
             scatter_data["High"].append(auto_values[1][0][0])
             scatter_data["Sample"].append(samples)
-            scatter_data["Source"].append("Inverted1")
+            scatter_data["Source"].append("Inv1")
             scatter_data["Low"].append(auto_values[0])
             scatter_data["High"].append(auto_values[1][0][1])
             scatter_data["Sample"].append(samples)
-            scatter_data["Source"].append("Inverted2")
+            scatter_data["Source"].append("Inv2")
             scatter_data["Low"].append(auto_values[0])
             scatter_data["High"].append(auto_values[1][0][2])
             scatter_data["Sample"].append(samples)
-            scatter_data["Source"].append("Logistic0")
+            scatter_data["Source"].append("Log0")
             scatter_data["Low"].append(auto_values[0])
             scatter_data["High"].append(auto_values[1][1][0])
             scatter_data["Sample"].append(samples)
-            scatter_data["Source"].append("Logistic1")
+            scatter_data["Source"].append("Log1")
             scatter_data["Low"].append(auto_values[0])
             scatter_data["High"].append(auto_values[1][1][1])
             scatter_data["Sample"].append(samples)
-            scatter_data["Source"].append("Logistic2")
+            scatter_data["Source"].append("Log2")
             scatter_data["Low"].append(auto_values[0])
             scatter_data["High"].append(auto_values[1][1][2])
             scatter_data["Row"].append(row_label)
@@ -774,10 +805,23 @@ class thresholding_metrics(AutoThresholder):
             scatter_data["Row"].append(row_label)
             scatter_data["Row"].append(row_label)
             scatter_data["Row"].append(row_label)
+            # the below is for the Inverted mean
+            mean_auto_data["Sample"].append(samples)
+            mean_auto_data["Source"].append("Inverted")
+            mean_auto_data["Low"].append(auto_values[0])
+            auto_mean_value = (auto_values[1][0][0] + auto_values[1][0][1] + auto_values[1][0][2]) / 3
+            mean_auto_data["High"].append(auto_mean_value)
+            # the below is for the Logistic mean
+            mean_auto_data["Sample"].append(samples)
+            mean_auto_data["Source"].append("Logistic")
+            mean_auto_data["Low"].append(auto_values[0])
+            auto_mean_value = (auto_values[1][1][0] + auto_values[1][1][1] + auto_values[1][1][2]) / 3
+            mean_auto_data["High"].append(auto_mean_value)
 
         scatter_df = pd.DataFrame.from_dict(scatter_data)
         organised_df = pd.DataFrame.from_dict(organised_data)
-        self._convert_to_graph(organised_df, scatter_df)
+        mean_auto_df = pd.DataFrame.from_dict(mean_auto_data)
+        self._convert_to_graph(organised_df, mean_auto_df)
 
     def _convert_to_graph(self, organised, scatter):
         '''
@@ -787,15 +831,20 @@ class thresholding_metrics(AutoThresholder):
         :return:
         '''
         sns.set_theme()
-        sns.relplot(data=scatter, x="Low", y="High", col="Sample", row="Row", hue="Source")
+        sns.set(font_scale=0.8)
+        scatterplot = sns.relplot(data=scatter, x="Low", y="High", col="Sample", hue="Source", col_wrap=5, aspect=1, height=2, legend="auto")
+        plt.show()
+        barplots = sns.catplot(data=organised, x="Source", y="ThreshValue", hue="ThreshType", col="Sample", col_wrap=5, aspect=1, height=2, kind="bar")
+        '''sample_grid = sns.FacetGrid(organised, col="Sample", col_wrap=5, aspect=1, height=2, legend_out=True)
+        sample_grid.map(sns.barplot, "Source", "ThreshValue", "ThreshType", **{"palette":"deep"})'''
         plt.show()
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\",
                                           auto_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
-    system_analyst.compare_thresholds_between()
-    # system_analyst._structure_overlap_test()
+    # system_analyst.compare_thresholds_between()
+    system_analyst._structure_overlap_test()
     # print(system_analyst.exp_threshes)
     # system_analyst.analyze_low_thresholds("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\")
 
