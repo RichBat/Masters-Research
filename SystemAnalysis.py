@@ -666,6 +666,101 @@ class thresholding_metrics(AutoThresholder):
             with open(save_path + "lw_thrsh_metrics.json", 'w') as j:
                 json.dump(self.low_thresholds, j)
 
+    def stack_hist_plot(self):
+        sample_storage = {"Sample":[], "intensity_range": [], "counts": []}
+        sample_thresholds = {}
+        expert_count = 0
+        for f in self.file_list:
+            f_path = f[0]
+            f_name = f[1]
+            if f_name in self.exp_threshes:
+                auto_values = self.automatic_thresholds[f_name]
+                inverted_mean = (auto_values[1][0][0] + auto_values[1][0][1] + auto_values[1][0][2]) / 3
+                logistic_mean = (auto_values[1][1][0] + auto_values[1][1][1] + auto_values[1][1][2]) / 3
+                exp_values = self.exp_threshes[f_name]
+                expert_count = max(len(exp_values), expert_count)
+                exp_low = min([exp_values[e_low][0] for e_low in range(len(exp_values)) if exp_values[e_low] is not None])
+                low_cutoff = min(auto_values[0], exp_low)
+                sample_thresholds[f_name] = {"Expert": exp_values, "Auto": [auto_values[0], inverted_mean, logistic_mean]}
+                f_image = io.imread(f_path)
+                intensity_counts, intensity_range = histogram(f_image, nbins=256)
+                cut_off_range = np.nonzero(intensity_range >= low_cutoff)
+                intensity_counts, intensity_range = intensity_counts[cut_off_range], intensity_range[cut_off_range]
+                sample_thresholds[f_name]["Fill_details"] = [intensity_range, intensity_counts]
+                sample_label = [f_name for n in intensity_range]
+                sample_storage["Sample"] += sample_label
+                sample_storage["intensity_range"] += intensity_range.tolist()
+                sample_storage["counts"] += intensity_counts.tolist()
+                '''colour_range = sns.color_palette()[1:]
+                colour_counter = 0
+                for exp in range(len(exp_values)):
+                    expert = exp_values[exp]
+                    if expert[0] is not None or expert[1] is not None:
+                        plt.axvline(expert[0], label="Expert" + str(exp) + "Low", linestyle='--', color=colour_range[exp])
+                        plt.axvline(expert[1], label="Expert" + str(exp) + "High", color=colour_range[exp])
+                    colour_counter += 1
+                plt.axvline(auto_values[0], label="AutoLow", linestyle='--', color=colour_range[colour_counter])
+                colour_counter += 1
+                plt.axvline(inverted_mean, label="InvertedMean", color=colour_range[colour_counter], linestyle='-.')
+                colour_counter += 1
+                plt.axvline(logistic_mean, label="LogisticMean", color=colour_range[colour_counter], linestyle='-.')
+                colour_counter = 0
+                plt.legend()'''
+                # histogram_grid = sns.FacetGrid(histogram_compare_2, col="Norm", sharey=False)
+                # histogram_grid.map(sns.lineplot, "intensity_range", "counts")
+        sample_hist_dfs = pd.DataFrame.from_dict(sample_storage)
+        sns.set_palette('bone')
+        sample_hist_plots = sns.relplot(sample_hist_dfs, x="intensity_range", y="counts", col="Sample", height=3, col_wrap=5, kind='line',
+                                        facet_kws={"sharey":False, "sharex":False})
+
+        colour_range = sns.color_palette('tab10')[1:]
+
+        def colour_line(sample_name, axes):
+            last_value = 0
+            colour_counter = 0
+            expert_thresh = sample_thresholds[sample_name]["Expert"]
+            for exp in range(len(expert_thresh)):
+                expert = expert_thresh[exp]
+                if expert is not None:
+                    axes.axvline(expert[0], label="Expert" + str(exp) + "Low", linestyle='--', color=colour_range[exp])
+                    axes.axvline(expert[1], label="Expert" + str(exp) + "High", color=colour_range[exp])
+                    last_value = max(last_value, expert[0], expert[1])
+                colour_counter += 1
+            automatic_values = sample_thresholds[sample_name]["Auto"]
+            axes.axvline(automatic_values[0], label="AutoLow", linestyle='--', color=colour_range[colour_counter])
+            colour_counter += 1
+            axes.axvline(automatic_values[1], label="InvertedMean", color=colour_range[colour_counter], linestyle='-.')
+            colour_counter += 1
+            axes.axvline(automatic_values[2], label="LogisticMean", color=colour_range[colour_counter], linestyle='-.')
+            last_value = max(last_value, automatic_values[0], automatic_values[1], automatic_values[2])
+            last_value = last_value + 10 if last_value + 10 < 255 else 255
+            last_value = math.ceil(last_value/10)*10
+            axes.set_xbound(lower=None, upper=last_value)
+            handles, labels = axes.get_legend_handles_labels()
+            '''fill_data = sample_thresholds[sample_name]["Fill_details"]
+            within_range = np.nonzero(fill_data[0] < last_value + 1)
+            fill_data = [fill_data[0][within_range], fill_data[1][within_range]]
+            axes.fill_between(fill_data[0], fill_data[1])'''
+            return [handles, labels]
+
+        axes = sample_hist_plots.axes
+        legend_labels = [[]]
+        for ax in axes:
+            sample_title = ax.get_title()
+            new_title = sample_title.split('= ')[1]
+            ax.set_title(new_title)
+            ax.set_ylabel("")
+            ax.set_xlabel("")
+            ax.set_yticks([])
+            legend_details = colour_line(new_title, ax)
+            legend_labels = legend_details if len(legend_details[0]) > len(legend_labels[0]) else legend_labels
+            print(new_title, ax.get_xlim())
+        sb_legend = {legend_labels[1][t]: legend_labels[0][t] for t in range(len(legend_labels[1]))}
+        sample_hist_plots.add_legend(legend_data=sb_legend, title="Threshold Names")
+        # plt.legend(legend_labels[0], legend_labels[1], loc='center right')
+        plt.show()
+
+
     def compare_thresholds_between(self):
         '''
         This method will be used to graph the low and high thresholds for the automated system and the experts for all samples
@@ -697,8 +792,8 @@ class thresholding_metrics(AutoThresholder):
                 sample_count = 1
             expert_values = self.exp_threshes[samples]
             auto_values = self.automatic_thresholds[samples]
-            for et in range(len(self.exp_threshes[samples])):
-                if self.exp_threshes[samples][et] is not None:
+            for et in range(len(expert_values)):
+                if expert_values[et] is not None:
                     expert_results = expert_values[et]
                     organised_data["Sample"].append(samples)  # for high and low threshold
                     organised_data["Sample"].append(samples)
@@ -843,8 +938,9 @@ if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\",
                                           auto_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
+    system_analyst.stack_hist_plot()
     # system_analyst.compare_thresholds_between()
-    system_analyst._structure_overlap_test()
+    # system_analyst._structure_overlap_test()
     # print(system_analyst.exp_threshes)
     # system_analyst.analyze_low_thresholds("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\")
 
