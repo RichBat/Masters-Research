@@ -122,6 +122,45 @@ class thresholding_metrics(AutoThresholder):
             compare_image = self._threshold_image(image, t[0], t[1])*image
             self._image_analysis(compare_image, expert_image)
 
+    def structure_hunting(self):
+        image_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MAX_N2Con_3C=1T=0.png"
+        mip_image = io.imread(image_path)
+        test_im = self._threshold_image(mip_image, 17, 60)
+        label_array, number_of_labels = ndi.label(test_im)
+        label_list, label_sizes = np.unique(label_array, return_counts=True)
+        label_list, label_sizes = label_list[1:], label_sizes[1:]
+        above_size = np.nonzero(label_sizes > 180)
+        label_list = label_list[above_size]
+        filtered_range = np.zeros_like(label_array)
+        for n in label_list:
+            filtered_range += np.equal(label_array, n).astype(int)
+        refined_labels, num_labels = ndi.label(filtered_range)
+        structure_selection = np.nonzero(refined_labels == 42)
+        isolated_structure = np.equal(refined_labels, 42).astype(int)
+        padding = 10
+        xrange, yrange = [min(structure_selection[0]), max(structure_selection[0])], [min(structure_selection[1]), max(structure_selection[1])]
+        array_ranges = [xrange[1]-xrange[0], yrange[1]-yrange[0]]
+        reduced_canvas = np.zeros(tuple(array_ranges))
+        reduced_canvas = (mip_image*isolated_structure)[xrange[0]:xrange[1], yrange[0]:yrange[1]]
+        '''io.imshow(reduced_canvas)
+        plt.show()'''
+        starting_low = 20
+        thresholded_canvas = np.zeros_like(reduced_canvas)
+        '''for t in range(starting_low, starting_low*5+1, 20):
+            thresholded_canvas += self._threshold_image(reduced_canvas, t, 140)'''
+
+        low_start = 60
+        def test_structure_thresh(low_thresh):
+            return self._threshold_image(reduced_canvas, low_thresh, 140)
+
+        print("##################################\n############ 40 to 60 ############\n##################################")
+        self._structure_overlap(test_structure_thresh(40), test_structure_thresh(60))
+        print("##################################\n############ 60 to 80 ############\n##################################")
+        self._structure_overlap(test_structure_thresh(60), test_structure_thresh(80))
+        print("##################################\n############ 40 to 100 ###########\n##################################")
+        self._structure_overlap(test_structure_thresh(80), test_structure_thresh(100))
+
+
     def _structure_overlap_test(self):
         im1 = np.array([[1, 1, 1, 1, 0, 0, 0, 0],
                [1, 1, 1, 1, 0, 0, 1, 1],
@@ -668,6 +707,7 @@ class thresholding_metrics(AutoThresholder):
 
     def stack_hist_plot(self):
         sample_storage = {"Sample":[], "intensity_range": [], "counts": []}
+        sample_voxels = {"Sample":[], "Source":[], "Voxel Count":[]}
         sample_thresholds = {}
         expert_count = 0
         for f in self.file_list:
@@ -691,21 +731,27 @@ class thresholding_metrics(AutoThresholder):
                 sample_storage["Sample"] += sample_label
                 sample_storage["intensity_range"] += intensity_range.tolist()
                 sample_storage["counts"] += intensity_counts.tolist()
-                '''colour_range = sns.color_palette()[1:]
-                colour_counter = 0
-                for exp in range(len(exp_values)):
-                    expert = exp_values[exp]
-                    if expert[0] is not None or expert[1] is not None:
-                        plt.axvline(expert[0], label="Expert" + str(exp) + "Low", linestyle='--', color=colour_range[exp])
-                        plt.axvline(expert[1], label="Expert" + str(exp) + "High", color=colour_range[exp])
-                    colour_counter += 1
-                plt.axvline(auto_values[0], label="AutoLow", linestyle='--', color=colour_range[colour_counter])
-                colour_counter += 1
-                plt.axvline(inverted_mean, label="InvertedMean", color=colour_range[colour_counter], linestyle='-.')
-                colour_counter += 1
-                plt.axvline(logistic_mean, label="LogisticMean", color=colour_range[colour_counter], linestyle='-.')
-                colour_counter = 0
-                plt.legend()'''
+
+                for ex in range(len(exp_values)):
+                    if exp_values[ex] is not None:
+                        sample_voxels["Sample"].append(f_name)
+                        sample_voxels["Source"].append("E" + str(ex))
+                        exp_thresh = exp_values[ex][1] if exp_values[ex][1] > exp_values[ex][0] else exp_values[ex][1] + 0.01
+                        thresholded = self._threshold_image(f_image, exp_values[ex][0], exp_thresh)
+                        sample_voxels["Voxel Count"].append(thresholded.sum())
+                for inv in range(len(auto_values[1][0])):
+                    inv_values = auto_values[1][0][inv]
+                    sample_voxels["Sample"].append(f_name)
+                    sample_voxels["Source"].append("I" + str(inv))
+                    thresholded = self._threshold_image(f_image, auto_values[0], inv_values)
+                    sample_voxels["Voxel Count"].append(thresholded.sum())
+                for logi in range(len(auto_values[1][1])):
+                    logi_values = auto_values[1][1][logi]
+                    sample_voxels["Sample"].append(f_name)
+                    sample_voxels["Source"].append("L" + str(logi))
+                    thresholded = self._threshold_image(f_image, auto_values[0], logi_values)
+                    sample_voxels["Voxel Count"].append(thresholded.sum())
+
                 # histogram_grid = sns.FacetGrid(histogram_compare_2, col="Norm", sharey=False)
                 # histogram_grid.map(sns.lineplot, "intensity_range", "counts")
         sample_hist_dfs = pd.DataFrame.from_dict(sample_storage)
@@ -754,12 +800,31 @@ class thresholding_metrics(AutoThresholder):
             ax.set_yticks([])
             legend_details = colour_line(new_title, ax)
             legend_labels = legend_details if len(legend_details[0]) > len(legend_labels[0]) else legend_labels
-            print(new_title, ax.get_xlim())
         sb_legend = {legend_labels[1][t]: legend_labels[0][t] for t in range(len(legend_labels[1]))}
         sample_hist_plots.add_legend(legend_data=sb_legend, title="Threshold Names")
         # plt.legend(legend_labels[0], legend_labels[1], loc='center right')
         plt.show()
 
+        voxel_df = pd.DataFrame.from_dict(sample_voxels)
+        voxel_bars = sns.catplot(voxel_df, x="Source", y="Voxel Count", col="Sample", col_wrap=5, aspect=1, kind="bar", height=2, sharey=False, legend=True)
+        axes = voxel_bars.axes
+        for ax in axes:
+            sample_title = ax.get_title()
+            new_title = sample_title.split('= ')[1]
+            ax.set_title(new_title)
+            '''ax.set_xlabel("")
+            ax.set_xticks([])
+            print(ax.patches[0].get_facecolor())
+            print(type(ax))
+            try:
+                print(ax.container.get_label())
+            except Exception as e:
+                print('List or Tuple', e)
+            try:
+                print(ax.container[0].get_label())
+            except Exception as e:
+                print(e)'''
+        plt.show()
 
     def compare_thresholds_between(self):
         '''
@@ -938,7 +1003,8 @@ if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\",
                                           auto_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
-    system_analyst.stack_hist_plot()
+    system_analyst.structure_hunting()
+    # system_analyst.stack_hist_plot()
     # system_analyst.compare_thresholds_between()
     # system_analyst._structure_overlap_test()
     # print(system_analyst.exp_threshes)
