@@ -153,13 +153,81 @@ class thresholding_metrics(AutoThresholder):
         def test_structure_thresh(low_thresh):
             return self._threshold_image(reduced_canvas, low_thresh, 140)
 
-        print("##################################\n############ 40 to 60 ############\n##################################")
-        self._structure_overlap(test_structure_thresh(40), test_structure_thresh(60))
-        print("##################################\n############ 60 to 80 ############\n##################################")
-        self._structure_overlap(test_structure_thresh(60), test_structure_thresh(80))
-        print("##################################\n############ 40 to 100 ###########\n##################################")
-        self._structure_overlap(test_structure_thresh(80), test_structure_thresh(100))
 
+
+        print("##################################\n############ 40 to 60 ############\n##################################")
+        volume40to60, pairs40to60 = self._structure_overlap(test_structure_thresh(40), test_structure_thresh(60))
+        print("##################################\n############ 60 to 80 ############\n##################################")
+        volume60to80, pairs60to80 = self._structure_overlap(test_structure_thresh(60), test_structure_thresh(80))
+        print("##################################\n############ 80 to 100 ###########\n##################################")
+        volume80to100, pairs80to100 = self._structure_overlap(test_structure_thresh(80), test_structure_thresh(100))
+        print("##################################\n############ 100 to 120 ###########\n##################################")
+        volume100to120, pairs100to120 = self._structure_overlap(test_structure_thresh(100), test_structure_thresh(120))
+
+        print(volume40to60)
+
+        def adjust_values_for_pairs(arr1, arr2):
+            bool1 = np.greater(arr1, 0).astype(int)
+            bool2 = np.greater(arr2, 0).astype(int)
+            col_range = bool2.shape[1]
+            #print(col_range)
+            col_numbers = np.arange(0, col_range, 1)
+            bool2 = bool2 * col_numbers
+            result = np.matmul(bool1, bool2)
+            old_structs = result.shape[0]
+            stored = {}
+            for os in range(1, old_structs):
+                stored[os] = np.where(result[os] > 0)[0].tolist()
+            return result, stored
+
+        def convert_vol_ratios(arr1, arr2):
+            bool1 = arr1
+            bool2 = arr2
+            result = np.matmul(bool1, bool2)
+            return result
+
+        print("##################################\n############ 60 to 40 ############\n##################################")
+        volume60to40, pairs60to40 = self._structure_overlap(test_structure_thresh(60), test_structure_thresh(40))
+        print("##################################\n############ 80 to 60 ############\n##################################")
+        volume80to60, pairs80to60 = self._structure_overlap(test_structure_thresh(80), test_structure_thresh(60))
+        print("##################################\n############ 100 to 80 ###########\n##################################")
+        volume100to80, pairs100to80 = self._structure_overlap(test_structure_thresh(100), test_structure_thresh(80))
+        print("Tracking changes forwards")
+        change1, store1 = adjust_values_for_pairs(volume40to60, volume60to80)
+        print(pairs40to60, pairs60to80, "!", store1)
+        change2, store2 = adjust_values_for_pairs(volume60to80, volume80to100)
+        print(pairs60to80, pairs80to100, "!", store2)
+        change3, store3 = adjust_values_for_pairs(volume80to100, volume100to120)
+        print(pairs80to100, pairs100to120, "!", store3)
+        print("In reverse")
+        r_change1, r_store1 = adjust_values_for_pairs(volume100to80, volume80to60)
+        print(pairs100to80, pairs80to60)
+        r_change2, r_store2 = adjust_values_for_pairs(volume80to60, volume60to40)
+        print(pairs80to60, pairs60to40)
+
+        print("##########################")
+        print(volume40to60, volume60to80, volume80to100)
+        print(change1.shape, change2.shape, change3.shape)
+        print(change1)
+        print(change2)
+        AtoC, new_store1 = adjust_values_for_pairs(change1, change3)
+        print(AtoC, new_store1)
+        old = volume40to60
+        print("Initial volume:\n", old)
+        image_set = [volume60to80, volume80to100, volume100to120]
+        final_change, final_pairings = None, None
+        for timage in range(len(image_set)):
+            changed_ver = convert_vol_ratios(old, image_set[timage])
+            print(old.shape, image_set[timage].shape, changed_ver.shape)
+            print("Step:", timage, "Ratios:\n", changed_ver.sum(axis=1))
+            old = changed_ver
+            final_change = changed_ver
+        print("************************")
+        print(final_change)
+        print("########################")
+        print(volume40to60)
+        print(volume60to80)
+        print(volume80to100)
 
     def _structure_overlap_test(self):
         im1 = np.array([[1, 1, 1, 1, 0, 0, 0, 0],
@@ -463,7 +531,7 @@ class thresholding_metrics(AutoThresholder):
                 subject_match_relations[pw[0]].append(pw[1])
             print("Order test:", set(list(subject_match_relations)) == set(included_subject.tolist()))
             print("Structure pairs", subject_match_relations)
-            return over_ratio, vol_ratio, subject_match_relations
+            return over_ratio, subject_match_relations
 
         '''plt.figure(1)
         io.imshow(structure_seg1)
