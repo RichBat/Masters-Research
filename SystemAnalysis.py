@@ -170,6 +170,11 @@ class thresholding_metrics(AutoThresholder):
         iteration_ranges = np.arange(iter_step_size, np.max(iteration_order) + iter_step_size, iter_step_size)
         result_shape_array = np.zeros(tuple([len(low_res), len(high_res), 2]))  # this is just for testing. Will store the shape of the overlap ratios
         store_neighbours = []  # purely for testing as this is less efficient than arrays and in practice neighbourhood inheritance will happen in loop
+        im_shape = list(starting_image.shape)
+        parent_images = np.zeros(tuple([1] + im_shape))
+        parent_images[0] = starting_image
+        parent_key = {"00": 0}
+        parent_child_relations = {}
         for i in iteration_ranges:
             print(i)
             if iter_step_size == 1:
@@ -185,20 +190,43 @@ class thresholding_metrics(AutoThresholder):
             inheritance_array[1, :, 0] -= 1
             inheritance_array[2, :, 1] -= 1
             store_neighbours.append(inheritance_array)
+            def determine_inheritance(iter_of_interest):
+                '''
+                This inner function is used to determine which prior images (and overlap ratio's) are relevant to the currently thresholded structure while
+                minimizing memory consumption (don't store all past threshold images) or computation (if it is thresholded once don't threshold it again)
+                :param iter_of_interest: The current thresh iteration to inherit from past
+                :return:
+                '''
+                nonneg = np.all(np.greater_equal(iter_of_interest[1:], 0), axis=0)
+                past_structs = iter_of_interest[1:][nonneg]
+                return past_structs
+
             # ***********************
-            for tp in np.argwhere(viable_elements):
-                threshold_params = thresholding_combos[tp[0], tp[1]]  # should assign a 1d array of two elements where ele 0 is low and ele 1 is high
+            child_images = np.zeros([inheritance_array.shape[1]] + im_shape)
+            child_key = []
+            for tp in range(inheritance_array.shape[1]):
+                threshold_params = thresholding_combos[inheritance_array[0, tp, 0], inheritance_array[0, tp, 1]]
+                parent_iters = determine_inheritance(inheritance_array[:, tp, :])
                 thresholded_image = test_structure_thresh(threshold_params[0], threshold_params[1])
-                if np.equal(starting_image, thresholded_image).all():
-                    print("These should not be identical")
-                over_ratio, vol_ratio, structure_pairs, excluded = self._structure_overlap(starting_image, thresholded_image)
-                starting_image = thresholded_image  # need to make sure that this is not linked (shallow copy ?!!) so it doesn't mutate
-                if over_ratio.shape != vol_ratio.shape:
-                    print("Ratio shape unmatched")
-                    print(over_ratio.shape, vol_ratio.shape)
-                print("Excluded structures", excluded)
-                result_shape_array[tp[0], tp[1], 0] = over_ratio.shape[0]
-                result_shape_array[tp[0], tp[1], 1] = over_ratio.shape[1]
+                child_key.append(str(inheritance_array[0, tp, 0]) + str(inheritance_array[0, tp, 1]))
+                child_images[tp] = thresholded_image
+                for par_it in parent_iters:
+                    print("!!", str(inheritance_array[0, tp, 0]) + str(inheritance_array[0, tp, 1]), par_it)
+                    print("##", str(par_it[0]) + str(par_it[1]), parent_key, parent_images.shape)
+                    parent_im = parent_images[parent_key[str(par_it[0]) + str(par_it[1])]]
+                    over_ratio, vol_ratio, structure_pairs, excluded = self._structure_overlap(parent_im, thresholded_image)
+                    print("Excluded structures", excluded, over_ratio.shape)
+
+
+            parent_key = {}
+            parent_images = np.zeros_like(child_images)
+            for ck in range(len(child_key)):
+                parent_key[child_key[ck]] = ck
+                parent_images[ck] = child_images[ck]
+
+
+
+
 
         print(result_shape_array)
         print(iteration_order)
