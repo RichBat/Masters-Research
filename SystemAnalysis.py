@@ -174,7 +174,9 @@ class thresholding_metrics(AutoThresholder):
         parent_images = np.zeros(tuple([1] + im_shape))
         parent_images[0] = starting_image
         parent_key = {"00": 0}
-        parent_child_relations = {}
+        parent_ratio = {}
+        struct_counter = {}
+        structure_vol_average = np.zeros_like(iteration_order)
         for i in iteration_ranges:
             print(i)
             if iter_step_size == 1:
@@ -204,34 +206,64 @@ class thresholding_metrics(AutoThresholder):
             # ***********************
             child_images = np.zeros([inheritance_array.shape[1]] + im_shape)
             child_key = []
+            child_ratios = {}
             for tp in range(inheritance_array.shape[1]):
                 threshold_params = thresholding_combos[inheritance_array[0, tp, 0], inheritance_array[0, tp, 1]]
                 parent_iters = determine_inheritance(inheritance_array[:, tp, :])
                 thresholded_image = test_structure_thresh(threshold_params[0], threshold_params[1])
-                child_key.append(str(inheritance_array[0, tp, 0]) + str(inheritance_array[0, tp, 1]))
+                __unused_labels, structure_count = ndi.label(thresholded_image)
+                unique_labels = np.unique(__unused_labels)
+                current_iter_key = str(inheritance_array[0, tp, 0]) + str(inheritance_array[0, tp, 1])
+                child_key.append(current_iter_key)
                 child_images[tp] = thresholded_image
+                struct_counter[current_iter_key] = (structure_count, unique_labels)
                 for par_it in parent_iters:
-                    print("!!", str(inheritance_array[0, tp, 0]) + str(inheritance_array[0, tp, 1]), par_it)
+                    print("!!", current_iter_key, par_it)
                     print("##", str(par_it[0]) + str(par_it[1]), parent_key, parent_images.shape)
                     parent_im = parent_images[parent_key[str(par_it[0]) + str(par_it[1])]]
                     over_ratio, vol_ratio, structure_pairs, excluded = self._structure_overlap(parent_im, thresholded_image)
                     print("Excluded structures", excluded, over_ratio.shape)
-
-
+                    non_zero_structs = np.nonzero(over_ratio)
+                    print("1111111111111111111111111111111111111111112")
+                    print(np.unique(non_zero_structs[0]).shape, np.unique(non_zero_structs[1]).shape)
+                    print(over_ratio)
+                    if len(excluded[1]) > 1:
+                        print("Structures in new", structure_count)
+                        io.imshow(np.stack([parent_im, thresholded_image, np.zeros_like(thresholded_image)], axis=-1))
+                        plt.show()
+                    print("2111111111111111111111111111111111111111111")
+                    if len(parent_ratio.keys()) > 0 and str(par_it[0]) + str(par_it[1]) in parent_ratio:
+                        if current_iter_key not in child_ratios:
+                            child_ratios[current_iter_key] = []
+                        print("Ratio shapes", parent_ratio[str(par_it[0]) + str(par_it[1])].shape, over_ratio.shape)
+                        ratio_transfer = np.matmul(parent_ratio[str(par_it[0]) + str(par_it[1])], over_ratio)
+                        child_ratios[current_iter_key].append(ratio_transfer)
+                    else:
+                        child_ratios[current_iter_key] = [over_ratio]
+                if len(child_ratios[current_iter_key]) > 1:
+                    child_ratios[current_iter_key] = (child_ratios[current_iter_key][0] + child_ratios[current_iter_key][1])/2
+                else:
+                    child_ratios[current_iter_key] = child_ratios[current_iter_key][0]
+                consolidated_overlaps = child_ratios[current_iter_key].sum(axis=0)
+                print("~~~~", current_iter_key, consolidated_overlaps)
+                structure_vol_average[inheritance_array[0, tp, 0], inheritance_array[0, tp, 1]] = np.mean(consolidated_overlaps[1:])
             parent_key = {}
             parent_images = np.zeros_like(child_images)
+            parent_ratio = {}
+            for k, v in child_ratios.items():
+                print("Child", k)
+                print(v.shape)
+
             for ck in range(len(child_key)):
                 parent_key[child_key[ck]] = ck
                 parent_images[ck] = child_images[ck]
+                parent_ratio[child_key[ck]] = child_ratios[child_key[ck]]
 
 
-
-
-
-        print(result_shape_array)
-        print(iteration_order)
-        print(result_shape_array.shape)
-        print("Going through neighbours")
+        print("Structures at each iteration")
+        print(struct_counter)
+        print(structure_vol_average)
+        '''print("Going through neighbours")
 
         def result_shape_testing(neighbourhoods):
             structure_current = []
@@ -290,8 +322,6 @@ class thresholding_metrics(AutoThresholder):
         print("*******************")
         print(over_0102.shape, over_1020.shape)
         print(over_0212.shape, over_1112.shape, "#", over_1121.shape, over_2021.shape)
-        io.imshow(image_21+image_20)
-        plt.show()
         image_22 = test_structure_thresh(thresholding_combos[2, 2][0], thresholding_combos[2, 2][1])
         over_1222, __a, __b, __c = self._structure_overlap(image_12, image_22)
         over_2122, __a, __b, __c = self._structure_overlap(image_21, image_22)
@@ -314,7 +344,7 @@ class thresholding_metrics(AutoThresholder):
             # print("###**", prior.shape, current.shape, "**###")
             return np.matmul(prior, current)
 
-        '''over_02, store02 = adjust_values_for_pairs(over_0001, over_0102)
+        over_02, store02 = adjust_values_for_pairs(over_0001, over_0102)
         over_20, store20 = adjust_values_for_pairs(over_0010, over_1020)
         over_11a, store11a = adjust_values_for_pairs(over_0001, over_0111)
         over_11b, store11b = adjust_values_for_pairs(over_0010, over_1011)
@@ -330,7 +360,7 @@ class thresholding_metrics(AutoThresholder):
 
         print(over_21a.sum(axis=1), over_21b.sum(axis=1))
         print("**************************")
-        print(over_12a.sum(axis=1), over_12b.sum(axis=1))'''
+        print(over_12a.sum(axis=1), over_12b.sum(axis=1))
         over_02 = relative_traceback(over_0001, over_0102)
         over_20 = relative_traceback(over_0010, over_1020)
         over_11a = relative_traceback(over_0001, over_0111)
@@ -348,7 +378,7 @@ class thresholding_metrics(AutoThresholder):
         print(over_21b)
         print("**************************")
         print(over_12a)
-        print(over_12b)
+        print(over_12b)'''
 
 
 
