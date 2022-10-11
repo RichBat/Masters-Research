@@ -122,6 +122,23 @@ class thresholding_metrics(AutoThresholder):
             compare_image = self._threshold_image(image, t[0], t[1])*image
             self._image_analysis(compare_image, expert_image)
 
+    def _image_diff_measure(self, im1, im2):
+        binary1 = np.greater(im1, 0).astype(int)
+        binary2 = np.greater(im2, 0).astype(int)
+        diff_image = binary1 - binary2
+        complete_match_to_mismatch = (binary1 * binary2) + diff_image
+        diff_ratio = abs(complete_match_to_mismatch.sum())/binary2.sum()
+        '''fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        ax1.imshow(binary1 * binary2, cmap='viridis')
+        ax1.set_title("Union of Im1 and Im2 with values [0, 1]")
+        ax2.imshow(diff_image, cmap='viridis')
+        ax2.set_title("Mismatch of Im1 & Im2 with values [-1, 0]")
+        ax3.imshow(complete_match_to_mismatch, cmap='viridis')
+        ax3.set_title("Combination of the Union and Mismatch. Values in [-1, 0, 1]")
+        plt.show()'''
+        diff_vol = np.mean(complete_match_to_mismatch, where=np.abs(complete_match_to_mismatch) > 0)
+        return diff_ratio, diff_vol
+
     def distance_from_target(self):
         '''
         This function has the goal of measuring how for the subject image is from the target image. The subject will have some threshold range that it will
@@ -148,12 +165,13 @@ class thresholding_metrics(AutoThresholder):
         array_ranges = [xrange[1] - xrange[0], yrange[1] - yrange[0]]
         reduced_canvas = np.zeros(tuple(array_ranges))
         reduced_canvas = (mip_image * isolated_structure)[xrange[0]:xrange[1], yrange[0]:yrange[1]]
-
+        '''io.imshow(reduced_canvas)
+        plt.show()'''
         def test_structure_thresh(low_thresh, high_thresh):
             return self._threshold_image(reduced_canvas, low_thresh, high_thresh)
 
-        subject_thresholds = (20, 220)
-        target_thresholds = (100, 140)
+        subject_thresholds = (100, 220)
+        target_thresholds = (20, 140)
         resolution_minimum = 20
         low_res_steps = math.ceil(abs(target_thresholds[0] - subject_thresholds[0]) / resolution_minimum)
         high_res_steps = math.ceil(abs(target_thresholds[1] - subject_thresholds[1]) / resolution_minimum)
@@ -173,20 +191,35 @@ class thresholding_metrics(AutoThresholder):
         ''' The method above will build the threshold values within the selected resolution granularity and compensates for whether subject thresh is greater
         than target thresh'''
         result_array = np.zeros(tuple([len(low_res), len(high_res)]))
-        thresholding_combos = np.stack([(np.ones_like(result_array).T * low_res).T, np.ones_like(result_array) * high_res], axis=-1)
         iteration_order = np.zeros(tuple([len(low_res), len(high_res)]))
         indice_array = np.argwhere(iteration_order == 0).sum(axis=1)/2
         iteration_order[np.nonzero(iteration_order + 1)] = indice_array
         iter_step_size = 0.5
         iteration_ranges = np.arange(0, np.max(iteration_order) + iter_step_size, iter_step_size)
-        target_image = test_structure_thresh(target_thresholds[0], target_thresholds[1])
-        subject_image = test_structure_thresh(subject_thresholds[0], subject_thresholds[1])
+        change_in_subject = np.zeros(tuple([len(low_res), len(high_res)]))
+        change_in_similarity = np.zeros(tuple([len(low_res), len(high_res)]))
+        volume_mismatch = np.zeros(tuple([len(low_res), len(high_res)]))
+        mismatch_ratio = np.zeros(tuple([len(low_res), len(high_res)]))
+        subject_exclusions = np.zeros(tuple([len(low_res), len(high_res)]))
+        target_exclusions = np.zeros(tuple([len(low_res), len(high_res)]))
+        thresholding_combos = np.stack([(np.ones_like(result_array).T * low_res).T, np.ones_like(result_array) * high_res], axis=-1)
+        '''
+        # Low and High threshold ranges respectively (separated from thresholding_comb)
+        print(thresholding_comb[:, 0, 0])
+        print(thresholding_comb[0, :, 1])
+        # Low threshold is flipped for axis=0
+        print(np.flip(thresholding_comb, axis=0)[:, 0, 0])
+        print(np.flip(thresholding_comb, axis=0)[0, :, 1])
+        # High threshold is flipped for axis=1
+        print(np.flip(thresholding_comb, axis=1)[:, 0, 0])
+        print(np.flip(thresholding_comb, axis=1)[0, :, 1])
+        # Both Low and High thresholds flipped
+        print(np.flip(np.flip(thresholding_comb, axis=0), axis=1)[:, 0, 0])
+        print(np.flip(np.flip(thresholding_comb, axis=0), axis=1)[0, :, 1])'''
+        target_image = test_structure_thresh(thresholding_combos[-1, -1, 0], thresholding_combos[-1, -1, 1])
+        subject_image = test_structure_thresh(thresholding_combos[0, 0, 0], thresholding_combos[0, 0, 1])
         target_labels, target_label_count = ndi.label(target_image)
         subject_labels, subject_label_count = ndi.label(subject_image)
-        print("Target image structure count", target_label_count)
-        print("*********************")
-        change_in_subject = np.zeros_like(result_array)
-        change_in_similarity = np.zeros_like(result_array)
         for i in iteration_ranges:
             if iter_step_size == 1:
                 viable_elements = np.logical_and(np.less_equal(iteration_order, i), np.greater(iteration_order, i - 1))  # for when the iteration step size is 1
@@ -195,11 +228,13 @@ class thresholding_metrics(AutoThresholder):
             current_elements = np.argwhere(viable_elements)
             for ce in current_elements:
                 thresh_params = thresholding_combos[ce[0], ce[1]]
-                # print("Thresholds:", thresh_params)
                 changed_subject = test_structure_thresh(thresh_params[0], thresh_params[1])
                 changed_labels, changed_label_count = ndi.label(changed_subject)
                 over_ratio1, vol_ratio1, structure_pairing1, excluded1 = self._structure_overlap(changed_labels, target_labels, labels_provided=True)
                 over_ratio2, vol_ratio2, structure_pairing2, excluded2 = self._structure_overlap(changed_labels, subject_labels, labels_provided=True)
+                diff_ratio, diff_vol = self._image_diff_measure(target_labels, changed_labels)
+                volume_mismatch[ce[0], ce[1]] = diff_vol
+                mismatch_ratio[ce[0], ce[1]] = diff_ratio
                 '''if len(excluded1[0]) > 1 or len(excluded1[2]) > 1:
                     print("Excluded structures #1", excluded1)
                     background_label = int(255/np.max(subject_labels)) if np.max(subject_labels) > 1 else int((255 * 2) / 3)
@@ -221,26 +256,91 @@ class thresholding_metrics(AutoThresholder):
                 # print(np.mean(over_ratio1.sum(axis=0)[1:]), np.mean(over_ratio2.sum(axis=0)[1:]))
                 change_in_subject[ce[0], ce[1]] = np.mean(over_ratio2.sum(axis=0)[1:])
                 change_in_similarity[ce[0], ce[1]] = np.mean(over_ratio1.sum(axis=0)[1:])
+                overlap_target_total = np.logical_and(changed_labels > 0, target_labels > 0).astype(int).sum()
+                overlap_subject_total = np.logical_and(changed_labels > 0, subject_labels > 0).astype(int).sum()
 
-        change_in_subject = change_in_subject
-        fig, (ax1, ax2) = plt.subplots(1, 2)
-        '''ax1.imshow(change_in_subject, cmap='hot', interpolation='nearest')
-        ax1.grid(True)
-        ax1_xticks = [item.get_text() for item in ax1.get_xticklabels()]
-        print(ax1_xticks)
-        print(low_res.astype(str).tolist())
-        ax2.imshow(change_in_similarity, cmap='hot', interpolation='nearest')
-        plt.show()'''
+                def exclusion_ratios(struct_labels, source_im, ref_im, overlap_vol):
+                    ref_label_range, ref_struct_vols = np.unique(ref_im, return_counts=True)
+                    src_label_range, src_struct_vols = np.unique(source_im, return_counts=True)
+                    ref_label_range = ref_label_range > 0
+                    mean_ref_struct_vol = np.mean(ref_struct_vols, where=ref_label_range)
+                    total_ref_struct_vol = np.sum(ref_struct_vols)
+                    total_src_struct_vol = np.sum(src_struct_vols)
+                    excluded_vol_ratio = src_struct_vols[struct_labels]/np.mean(overlap_vol)
+                    excluded_mean = np.sum(excluded_vol_ratio)
+                    '''print("Average reference volume", mean_ref_struct_vol)
+                    print("Total excluded struct size", src_struct_vols[struct_labels].sum())
+                    print("Ratio of excluded src to average reference", excluded_vol_ratio)
+                    print("Exclusion value", excluded_mean)'''
+                    return excluded_mean
+                print("#*#", excluded1, "*", excluded2)
+                if len(excluded1[0]) > 1:
+                    print("Thresholds1:", thresh_params)
+                    print(excluded1[0][1:], excluded1[1][1:])
+                    subject_exclusions[ce[0], ce[1]] = exclusion_ratios(excluded1[0][1:], changed_labels, target_labels, overlap_target_total)
+                    #print("Similarity value:", np.mean(over_ratio1.sum(axis=0)[1:]))
+
+                if len(excluded2[2]) > 1:
+                    print("Thresholds2:", thresh_params)
+                    print(excluded2[2][1:], excluded2[3][1:])
+                    target_exclusions[ce[0], ce[1]] = exclusion_ratios(excluded2[2][1:], changed_labels, subject_labels, overlap_subject_total)
+                    #print("Similarity value:", np.mean(over_ratio2.sum(axis=0)[1:]))
+
+        fig1, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
         sns.heatmap(change_in_subject, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax1)
         ax1.set_title("Change relative to Subject")
+        ax1.set_xlabel("High Thresh")
+        ax1.set_ylabel("Low Thresh")
         sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax2)
         ax2.set_title("Change relative to Target")
+        ax2.set_xlabel("High Thresh")
+        ax2.set_ylabel("Low Thresh")
+        sns.heatmap(target_exclusions, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax3)
+        ax3.set_title("Structure not in Subject")
+        ax3.set_xlabel("High Thresh")
+        ax3.set_ylabel("Low Thresh")
+        sns.heatmap(subject_exclusions, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax4)
+        ax4.set_title("Structure not in Target")
+        ax4.set_xlabel("High Thresh")
+        ax4.set_ylabel("Low Thresh")
+
+        fig2, ((ax5, ax6), (ax7, ax8)) = plt.subplots(2, 2)
+        change_in_subject2 = change_in_subject - target_exclusions
+        change_in_similarity2 = change_in_similarity - subject_exclusions
+        sns.heatmap(change_in_subject2, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax5)
+        ax5.set_title("Change relative to Subject after exclusions")
+        ax5.set_xlabel("High Thresh")
+        ax5.set_ylabel("Low Thresh")
+        sns.heatmap(change_in_similarity2, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax6)
+        ax6.set_title("Change relative to Target after exclusions")
+        ax6.set_xlabel("High Thresh")
+        ax6.set_ylabel("Low Thresh")
+        sns.heatmap(change_in_subject, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax7)
+        ax7.set_title("Change relative to Subject")
+        ax7.set_xlabel("High Thresh")
+        ax7.set_ylabel("Low Thresh")
+        sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax8)
+        ax8.set_title("Change relative to Target")
+        ax8.set_xlabel("High Thresh")
+        ax8.set_ylabel("Low Thresh")
         plt.show()
 
 
-
-
-
+        '''sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax2)
+        ax2.set_title("Change relative to Target")
+        ax2.set_xlabel("High Thresh")
+        ax2.set_ylabel("Low Thresh")
+        plt.show()'''
+        '''fig2, (ax3, ax4) = plt.subplots(1, 2)
+        sns.heatmap(volume_mismatch, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax3)
+        ax3.set_title("Average Volume not shared by either image")
+        ax3.set_xlabel("High Thresh")
+        ax3.set_ylabel("Low Thresh")
+        sns.heatmap(mismatch_ratio, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax4)
+        ax4.set_title("Ratio of Target Image total volume vs total unshared volume between both images")
+        ax4.set_xlabel("High Thresh")
+        ax4.set_ylabel("Low Thresh")
+        plt.show()'''
 
     def high_and_low_testing(self):
         '''
