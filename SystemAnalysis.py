@@ -177,8 +177,6 @@ class thresholding_metrics(AutoThresholder):
         for n in label_list:
             filtered_range += np.equal(label_array, n).astype(int)
         refined_labels, num_labels = ndi.label(filtered_range)
-        '''io.imshow(refined_labels)
-        plt.show()'''
         structure_selection = (np.nonzero(refined_labels == 42), np.nonzero(refined_labels == 46))
         isolated_structure = (np.equal(refined_labels, 42).astype(int), np.equal(refined_labels, 46).astype(int))
         reduced_max = 160
@@ -191,20 +189,21 @@ class thresholding_metrics(AutoThresholder):
         array_ranges = [xrange[1] - xrange[0], yrange[1] - yrange[0]]
         reduced_canvas = np.zeros(tuple(array_ranges))
         reduced_canvas += (mip_image * isolated_structure[0])[xrange[0]:xrange[1], yrange[0]:yrange[1]]
+
         #saveIm("Structure_without_excluded.png", reduced_canvas)
-        '''io.imshow(reduced_canvas)
-        plt.show()'''
+        io.imshow(reduced_canvas)
+        plt.show()
         #reduced_canvas += (mip_image * isolated_structure[1] * secondary_struct_rescale)[xrange[0]:xrange[1], yrange[0]:yrange[1]].astype(int)
         #saveIm("excluded_structure_added.png", reduced_canvas)
         '''io.imshow(reduced_canvas)
         plt.show()'''
         def test_structure_thresh(low_thresh, high_thresh):
             return self._threshold_image(reduced_canvas, low_thresh, high_thresh)
-        subject_thresholds = (115, 220)
-        target_thresholds = (35, 140)
+        subject_thresholds = (20, 140)
+        target_thresholds = (100, 220)
         subject_im, target_im = test_structure_thresh(subject_thresholds[0], subject_thresholds[1]), test_structure_thresh(target_thresholds[0], target_thresholds[1])
-        saveIm("Subject_Im.png", subject_im)
-        saveIm("Target_Im.png", target_im)
+        '''saveIm("Subject_Im.png", subject_im)
+        saveIm("Target_Im.png", target_im)'''
         overlayed_bases = np.stack([subject_im.astype('uint8') * 255, target_im.astype('uint8') * 255, np.zeros_like(subject_im).astype('uint8')], axis=-1)
         '''saveIm("startOverlay_" + "S" + str(subject_thresholds[0]) + "I" + str(subject_thresholds[1]) + "_T" + str(target_thresholds[0]) + "I" +
                str(target_thresholds[1]) + ".png", overlayed_bases)'''
@@ -226,6 +225,7 @@ class thresholding_metrics(AutoThresholder):
         low_res = np.clip(low_res, low_min, low_max)
         high_res = np.arange(subject_thresholds[1], high_stop + high_res_steps * resolution_minimum * step_signs[1] + step_signs[1], high_res_steps * step_signs[1])
         high_res = np.clip(high_res, high_min, high_max)
+        print("Resolutions", low_res, high_res)
         ''' The method above will build the threshold values within the selected resolution granularity and compensates for whether subject thresh is greater
         than target thresh'''
         result_array = np.zeros(tuple([len(low_res), len(high_res)]))
@@ -234,6 +234,7 @@ class thresholding_metrics(AutoThresholder):
         iteration_order[np.nonzero(iteration_order + 1)] = indice_array
         iter_step_size = 0.5
         iteration_ranges = np.arange(0, np.max(iteration_order) + iter_step_size, iter_step_size)
+        print(iteration_order)
         change_in_subject = np.zeros(tuple([len(low_res), len(high_res)]))
         change_in_similarity = np.zeros(tuple([len(low_res), len(high_res)]))
         volume_mismatch = np.zeros(tuple([len(low_res), len(high_res)]))
@@ -242,6 +243,7 @@ class thresholding_metrics(AutoThresholder):
         target_exclusions = np.zeros(tuple([len(low_res), len(high_res)]))
         empty_grid = np.zeros_like(result_array)
         thresholding_combos = np.stack([(np.ones_like(result_array).T * low_res).T, np.ones_like(result_array) * high_res], axis=-1)
+        thresholding_combos[..., 0] = np.clip(thresholding_combos[..., 0], 0, thresholding_combos[..., 1])
         '''
         # Low and High threshold ranges respectively (separated from thresholding_comb)
         print(thresholding_comb[:, 0, 0])
@@ -261,12 +263,12 @@ class thresholding_metrics(AutoThresholder):
         subject_labels, subject_label_count = ndi.label(subject_image)
         '''saveIm("TargetLabelled.png", target_labels)
         saveIm("SubjectLabelled.png", subject_labels)'''
-        saveIm("Overlaid_labelled.png", np.stack([np.greater(subject_labels, 0).astype('uint8') * 255, np.greater(target_labels, 0).astype('uint8') * 255,
-                                                  np.greater(subject_labels, 0).astype('uint8') * np.greater(target_labels, 0).astype('uint8') * 255], axis=-1))
-        io.imshow(target_labels)
+        '''saveIm("Overlaid_labelled.png", np.stack([np.greater(subject_labels, 0).astype('uint8') * 255, np.greater(target_labels, 0).astype('uint8') * 255,
+                                                  np.greater(subject_labels, 0).astype('uint8') * np.greater(target_labels, 0).astype('uint8') * 255], axis=-1))'''
+        '''io.imshow(target_labels)
         plt.show()
         io.imshow(subject_labels)
-        plt.show()
+        plt.show()'''
         exclusion_list = [[84, 140], [84, 172], [96, 140], [100, 168], [100, 172]]
         for i in iteration_ranges:
             if iter_step_size == 1:
@@ -275,6 +277,7 @@ class thresholding_metrics(AutoThresholder):
                 viable_elements = np.equal(iteration_order, i)
             current_elements = np.argwhere(viable_elements)
             for ce in current_elements:
+                # print("Current elements", ce)
                 thresh_params = thresholding_combos[ce[0], ce[1]]
                 changed_subject = test_structure_thresh(thresh_params[0], thresh_params[1])
                 changed_labels, changed_label_count = ndi.label(changed_subject)
@@ -310,10 +313,9 @@ class thresholding_metrics(AutoThresholder):
                 def exclusion_ratios(struct_labels, source_im, ref_im, overlap_vol):
                     ref_label_range, ref_struct_vols = np.unique(ref_im, return_counts=True)
                     src_label_range, src_struct_vols = np.unique(source_im, return_counts=True)
-                    ref_label_range = ref_label_range > 0
-                    mean_ref_struct_vol = np.mean(ref_struct_vols, where=ref_label_range)
+                    '''mean_ref_struct_vol = np.mean(ref_struct_vols, where=ref_label_range > 0)
                     total_ref_struct_vol = np.sum(ref_struct_vols)
-                    total_src_struct_vol = np.sum(src_struct_vols)
+                    total_src_struct_vol = np.sum(src_struct_vols)'''
                     try:
                         excluded_vol_ratio = src_struct_vols[struct_labels]/np.mean(overlap_vol)
                     except:
@@ -322,6 +324,23 @@ class thresholding_metrics(AutoThresholder):
                         plt.show()
                     excluded_vol_ratio = src_struct_vols[struct_labels] / np.mean(overlap_vol)
                     excluded_mean = np.sum(excluded_vol_ratio)
+                    excl_volumes = src_struct_vols[struct_labels]
+                    excl_count = len(excl_volumes)
+                    src_no_excl = np.delete(src_label_range, struct_labels)
+                    src_excl_vol = src_struct_vols[src_no_excl]  # x of z
+                    src_excl_vol = src_excl_vol[src_no_excl > 0]
+                    ref_label_range, src_label_range = ref_label_range > 0, src_label_range > 0
+                    ref_struct_vols, src_struct_vols = ref_struct_vols[ref_label_range], src_struct_vols[src_label_range]  # ref and source volumes
+                    ref_count, src_count = len(ref_struct_vols), len(src_struct_vols)
+                    excl_to_src_mean_diff = excl_volumes.sum() - excl_count * np.mean(src_excl_vol)
+                    combined_count = excl_count + len(src_excl_vol)
+                    compensation_value = (excl_to_src_mean_diff/combined_count)/np.mean(ref_struct_vols)
+                    print("Src lengths", src_count, excl_count, len(src_excl_vol))
+                    print("Compensation value", compensation_value)
+                    print("Struct mean ratio", np.mean(src_excl_vol)/np.mean(ref_struct_vols))
+                    print("Exclusion to src", (src_struct_vols.sum() - excl_volumes.sum())/src_struct_vols.sum())
+                    print("Excl to ref means", np.mean(excl_volumes)/np.mean(ref_struct_vols))
+                    print("Product of ratios", (src_struct_vols.sum() - excl_volumes.sum())/src_struct_vols.sum()*(np.mean(excl_volumes)/np.mean(ref_struct_vols)))
                     '''print("Average reference volume", mean_ref_struct_vol)
                     print("Total excluded struct size", src_struct_vols[struct_labels].sum())
                     print("Ratio of excluded src to average reference", excluded_vol_ratio)
@@ -343,6 +362,8 @@ class thresholding_metrics(AutoThresholder):
                                             np.zeros_like(target_labels).astype('uint8')], axis=-1)
                         saveIm("ExclusionMatch_" + "l" + str(thresh_params[0]) + "h" + str(thresh_params[1]) + ".png", excl_overlay)'''
                     subject_exclusions[ce[0], ce[1]] = exclusion_ratios(excluded1[0][1:], changed_labels, target_labels, overlap_target_total)
+                    print("Overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]))
+                    print("Overlap ratio to change", np.mean(over_ratio1.sum(axis=1)[1:]))
                     #print("Similarity value:", np.mean(over_ratio1.sum(axis=0)[1:]))
 
                 if len(excluded2[0]) > 1:
@@ -390,12 +411,12 @@ class thresholding_metrics(AutoThresholder):
         ax8.set_ylabel("Low Thresh")
         plt.show()
 
-        sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist())
+        '''sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist())
         plt.title("Change relative to Target")
         plt.xlabel("High Thresh")
         plt.ylabel("Low Thresh")
         saveFigure("Target_noExcl_BothFlipped.png")
-        plt.show()
+        plt.show()'''
 
         '''thresh_text_arr = np.empty_like(result_array).astype(str)
         thresh_arr_coords = np.argwhere(thresh_text_arr == 0)
