@@ -146,7 +146,7 @@ class thresholding_metrics(AutoThresholder):
         measured.
         :return:
         '''
-        image_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MAX_N2Con_3C=1T=0.png"
+        image_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\MAX_N2Con_3C=1T=0.png"
         vol_test_im_puncta = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0.tif", "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0Option0.tif"]
         cleaned_image = []
 
@@ -155,13 +155,13 @@ class thresholding_metrics(AutoThresholder):
         def saveIm(name, image):
             plt.imsave(fname="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Presentation Images\\" + name, arr=image)
 
-        for vtip in range(len(vol_test_im_puncta)):
+        '''for vtip in range(len(vol_test_im_puncta)):
             vol_puncta_test0 = io.imread(vol_test_im_puncta[vtip])
             green_region = vol_puncta_test0[..., 1]
             max_image = np.max(vol_puncta_test0, axis=-1)
             threshold_regions = np.greater(max_image, green_region).astype(int)
             cleaned_image.append(threshold_regions)
-        print(cleaned_image[0].sum()/cleaned_image[1].sum())
+        print(cleaned_image[0].sum()/cleaned_image[1].sum())'''
         #saveIm("overwhelming_puncta.png", np.stack([cleaned_image[0].astype('uint8') * 255, cleaned_image[1].astype('uint8') * 255, np.zeros_like(cleaned_image[0]).astype('uint8')], axis=-1))
         '''io.imshow(np.stack([cleaned_image[0]*255, cleaned_image[1]*255, np.zeros_like(cleaned_image[0])], axis=-1))
         plt.show()'''
@@ -191,8 +191,6 @@ class thresholding_metrics(AutoThresholder):
         reduced_canvas += (mip_image * isolated_structure[0])[xrange[0]:xrange[1], yrange[0]:yrange[1]]
 
         #saveIm("Structure_without_excluded.png", reduced_canvas)
-        io.imshow(reduced_canvas)
-        plt.show()
         #reduced_canvas += (mip_image * isolated_structure[1] * secondary_struct_rescale)[xrange[0]:xrange[1], yrange[0]:yrange[1]].astype(int)
         #saveIm("excluded_structure_added.png", reduced_canvas)
         '''io.imshow(reduced_canvas)
@@ -207,8 +205,6 @@ class thresholding_metrics(AutoThresholder):
         overlayed_bases = np.stack([subject_im.astype('uint8') * 255, target_im.astype('uint8') * 255, np.zeros_like(subject_im).astype('uint8')], axis=-1)
         '''saveIm("startOverlay_" + "S" + str(subject_thresholds[0]) + "I" + str(subject_thresholds[1]) + "_T" + str(target_thresholds[0]) + "I" +
                str(target_thresholds[1]) + ".png", overlayed_bases)'''
-        io.imshow(overlayed_bases)
-        plt.show()
         resolution_minimum = 20
         low_res_steps = math.ceil(abs(target_thresholds[0] - subject_thresholds[0]) / resolution_minimum)
         high_res_steps = math.ceil(abs(target_thresholds[1] - subject_thresholds[1]) / resolution_minimum)
@@ -234,7 +230,6 @@ class thresholding_metrics(AutoThresholder):
         iteration_order[np.nonzero(iteration_order + 1)] = indice_array
         iter_step_size = 0.5
         iteration_ranges = np.arange(0, np.max(iteration_order) + iter_step_size, iter_step_size)
-        print(iteration_order)
         change_in_subject = np.zeros(tuple([len(low_res), len(high_res)]))
         change_in_similarity = np.zeros(tuple([len(low_res), len(high_res)]))
         volume_mismatch = np.zeros(tuple([len(low_res), len(high_res)]))
@@ -345,6 +340,12 @@ class thresholding_metrics(AutoThresholder):
                     print("Total excluded struct size", src_struct_vols[struct_labels].sum())
                     print("Ratio of excluded src to average reference", excluded_vol_ratio)
                     print("Exclusion value", excluded_mean)'''
+                    src_to_overlap = np.sqrt(np.matmul(over_ratio1[1:, 1:], ref_struct_vols)/src_struct_vols)
+                    mean_src_overlap = np.mean(src_to_overlap)
+                    print("Overlap shape", mean_src_overlap)
+                    excluded_to_ref = np.mean(excl_volumes)/np.mean(ref_struct_vols)
+                    print("Excluded struct size to ref size", excluded_to_ref)
+                    print("From overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]) - (1 - mean_src_overlap - excluded_to_ref))
                     return excluded_mean
                 # print("#*#", excluded1, "*", excluded2)
                 if len(excluded1[0]) > 1:
@@ -363,7 +364,6 @@ class thresholding_metrics(AutoThresholder):
                         saveIm("ExclusionMatch_" + "l" + str(thresh_params[0]) + "h" + str(thresh_params[1]) + ".png", excl_overlay)'''
                     subject_exclusions[ce[0], ce[1]] = exclusion_ratios(excluded1[0][1:], changed_labels, target_labels, overlap_target_total)
                     print("Overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]))
-                    print("Overlap ratio to change", np.mean(over_ratio1.sum(axis=1)[1:]))
                     #print("Similarity value:", np.mean(over_ratio1.sum(axis=0)[1:]))
 
                 if len(excluded2[0]) > 1:
@@ -1714,9 +1714,8 @@ class thresholding_metrics(AutoThresholder):
         plt.show()
 
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
-    system_analyst = thresholding_metrics(input_path, expert_path="C:\\RESEARCH\\Mitophagy_data\\gui params\\",
-                                          auto_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    system_analyst = thresholding_metrics(input_path)
     system_analyst.distance_from_target()
     # system_analyst.high_and_low_testing()
     # system_analyst.structure_hunting()
