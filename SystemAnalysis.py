@@ -139,14 +139,90 @@ class thresholding_metrics(AutoThresholder):
         diff_vol = np.mean(complete_match_to_mismatch, where=np.abs(complete_match_to_mismatch) > 0)
         return diff_ratio, diff_vol
 
-    def distance_from_target(self):
+    def large_excluded_test(self):
+        image_path = "C:\\Users\\richy\Desktop\\SystemAnalysis_files\\MAX_CCCP_1C=0T=0.tif"
+        subject_thresholds = [20, 23]
+        target_thresholds = [26, 95]
+
+        puncta_image = io.imread(image_path)
+        subject_image = self._threshold_image(puncta_image, subject_thresholds[0], subject_thresholds[1])
+        target_image = self._threshold_image(puncta_image, target_thresholds[0], target_thresholds[1])
+        io.imshow(np.stack([subject_image*255, target_image*255, np.zeros_like(subject_image)], axis=-1))
+        plt.show()
+        target_labels, label_count = ndi.label(target_image)
+        subject_labels, subject_count = ndi.label(subject_image)
+        overlap, penalty = self._distance_from_target(subject_labels, target_labels)
+        print(overlap, penalty)
+
+    def _distance_from_target(self, changed_labels, target_labels, thresholds=None):
+        over_ratio1, vol_ratio1, structure_pairing1, excluded1 = self._structure_overlap(changed_labels, target_labels,
+                                                                                         labels_provided=True)
+        # diff_ratio, diff_vol = self._image_diff_measure(target_labels, changed_labels)
+        overlap_ratio = np.mean(over_ratio1.sum(axis=0)[1:])
+        change_vol = np.sum(np.greater(changed_labels, 0).astype(int))
+        print("Calculating exclusions")
+        def exclusion_ratios(struct_labels, source_im, ref_im):
+            ref_label_range, ref_struct_vols = np.unique(ref_im, return_counts=True)
+            src_label_range, src_struct_vols = np.unique(source_im, return_counts=True)
+            excl_volumes = src_struct_vols[struct_labels]
+            src_no_excl = np.delete(src_label_range, struct_labels)
+            src_excl_vol = src_struct_vols[src_no_excl]  # x of z
+            src_excl_vol = src_excl_vol[src_no_excl > 0]
+            ref_label_range, src_label_range = ref_label_range > 0, src_label_range > 0
+            ref_struct_vols, src_struct_vols = ref_struct_vols[ref_label_range], src_struct_vols[
+                src_label_range]  # ref and source volumes
+            src_to_overlap = np.sqrt(np.matmul(over_ratio1[1:, 1:], ref_struct_vols) / src_struct_vols)
+            mean_src_overlap = np.mean(src_to_overlap)
+            excluded_to_ref = np.mean(excl_volumes) / np.mean(ref_struct_vols)
+            print("Excluded struct size to ref size", mean_src_overlap)
+            print("Mean ratio excl to ref", excluded_to_ref)
+            print("Excluded to src mean", np.mean(ref_struct_vols)/np.mean(src_struct_vols))
+            multiple_count = math.pow(0.1, len(str(int(excluded_to_ref))))
+            print("Absolute mean diff", abs(np.mean(excl_volumes) - np.mean(ref_struct_vols)))
+            print("Absolute mean diff src", abs(np.mean(excl_volumes) - np.mean(src_excl_vol)))
+            mean_ref_excl_ratio = 0.5 * excluded_to_ref if excluded_to_ref <= 1 else 0.5 + 0.5 * excluded_to_ref * (np.mean(ref_struct_vols)/np.mean(src_struct_vols))
+            remaining_ratio = 1 - mean_ref_excl_ratio
+            src_over_detraction = (1 - mean_src_overlap)*remaining_ratio
+            weighted_compensation = (np.mean(over_ratio1.sum(axis=0)[1:]) * src_over_detraction + np.mean(
+                over_ratio1.sum(axis=0)[1:]) * mean_ref_excl_ratio) * ((excluded1[1][1:].sum()) / change_vol)
+            print("From number of excluded by ratio", src_over_detraction)
+            print("Excluded relative to ref", mean_ref_excl_ratio)
+            print("With weighting", np.mean(over_ratio1.sum(axis=0)[1:]) * src_over_detraction,
+                  np.mean(over_ratio1.sum(axis=0)[1:]) * mean_ref_excl_ratio,
+                  np.mean(over_ratio1.sum(axis=0)[1:]) * src_over_detraction + np.mean(
+                      over_ratio1.sum(axis=0)[1:]) * mean_ref_excl_ratio)
+            print("From overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]) - np.mean(over_ratio1.sum(axis=0)[1:]) * (
+                        1 - excluded_to_ref - mean_src_overlap) / 1)
+            print("Weighted compensation reduction", np.mean(over_ratio1.sum(axis=0)[1:]) - weighted_compensation)
+            return weighted_compensation
+
+        # print("#*#", excluded1, "*", excluded2)
+        exclusion_penalty = 0
+        if len(excluded1[0]) > 1:
+            print("Thresholds1:", thresholds)
+            print(excluded1[0][1:], excluded1[1][1:])
+            targ_vol = np.sum(np.greater(target_labels, 0).astype(int))
+            print("Target volume total", targ_vol)
+            print("Change volume total", change_vol)
+            print("Change without excl ratio", (change_vol - excluded1[1][1:].sum()) / change_vol)
+            exclusion_penalty = exclusion_ratios(excluded1[0][1:], changed_labels, target_labels)
+            print("Overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]))
+            print("Penalty", exclusion_penalty)
+            excluded_structs = np.zeros_like(changed_labels)
+            for t in excluded1[0][1:]:
+                excluded_structs += np.equal(changed_labels, t).astype(int)
+
+        return overlap_ratio, exclusion_penalty
+
+
+    def distribution_from_target(self):
         '''
         This function has the goal of measuring how for the subject image is from the target image. The subject will have some threshold range that it will
         vary across and the deviation between the subject image (at the current threshold) and the fixed target image (at some fixed thresholds) will be
         measured.
         :return:
         '''
-        image_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\MAX_N2Con_3C=1T=0.png"
+        image_path = "C:\\Users\\richy\Desktop\\SystemAnalysis_files\\MAX_N2Con_3C=1T=0.png"
         vol_test_im_puncta = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0.tif", "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0Option0.tif"]
         cleaned_image = []
 
@@ -189,12 +265,7 @@ class thresholding_metrics(AutoThresholder):
         array_ranges = [xrange[1] - xrange[0], yrange[1] - yrange[0]]
         reduced_canvas = np.zeros(tuple(array_ranges))
         reduced_canvas += (mip_image * isolated_structure[0])[xrange[0]:xrange[1], yrange[0]:yrange[1]]
-
-        #saveIm("Structure_without_excluded.png", reduced_canvas)
-        #reduced_canvas += (mip_image * isolated_structure[1] * secondary_struct_rescale)[xrange[0]:xrange[1], yrange[0]:yrange[1]].astype(int)
-        #saveIm("excluded_structure_added.png", reduced_canvas)
-        '''io.imshow(reduced_canvas)
-        plt.show()'''
+        # reduced_canvas += (mip_image * isolated_structure[1] * secondary_struct_rescale)[xrange[0]:xrange[1], yrange[0]:yrange[1]].astype(int)
         def test_structure_thresh(low_thresh, high_thresh):
             return self._threshold_image(reduced_canvas, low_thresh, high_thresh)
         subject_thresholds = (20, 140)
@@ -272,184 +343,29 @@ class thresholding_metrics(AutoThresholder):
                 viable_elements = np.equal(iteration_order, i)
             current_elements = np.argwhere(viable_elements)
             for ce in current_elements:
-                # print("Current elements", ce)
                 thresh_params = thresholding_combos[ce[0], ce[1]]
                 changed_subject = test_structure_thresh(thresh_params[0], thresh_params[1])
                 changed_labels, changed_label_count = ndi.label(changed_subject)
-                over_ratio1, vol_ratio1, structure_pairing1, excluded1 = self._structure_overlap(changed_labels, target_labels, labels_provided=True)
-                over_ratio2, vol_ratio2, structure_pairing2, excluded2 = self._structure_overlap(changed_labels, subject_labels, labels_provided=True)
-                diff_ratio, diff_vol = self._image_diff_measure(target_labels, changed_labels)
-                volume_mismatch[ce[0], ce[1]] = diff_vol
-                mismatch_ratio[ce[0], ce[1]] = diff_ratio
-                '''if len(excluded1[0]) > 1 or len(excluded1[2]) > 1:
-                    print("Excluded structures #1", excluded1)
-                    background_label = int(255/np.max(subject_labels)) if np.max(subject_labels) > 1 else int((255 * 2) / 3)
-                    change_label = int(255/np.max(changed_labels))
-                    primary_label = int(255/np.max(target_labels))
-                    print("Change labels", np.unique(changed_labels), "=", np.unique(changed_labels * change_label))
-                    print("Primary labels", np.unique(target_labels), "=", np.unique(target_labels * primary_label))
-                    io.imshow(np.stack([changed_labels * change_label, target_labels * primary_label, subject_labels*background_label], axis=-1))
-                    plt.show()'''
-                '''if len(excluded2[0]) > 1 or len(excluded2[2]) > 1:
-                    print("Excluded structures #2", excluded2)
-                    background_label = int(255 / np.max(target_labels))
-                    change_label = int(255 / np.max(changed_labels))
-                    primary_label = int(255 / np.max(subject_labels))
-                    print("Change labels", np.unique(changed_labels), "=", np.unique(changed_labels * change_label))
-                    print("Primary labels", np.unique(target_labels), "=", np.unique(target_labels * primary_label))
-                    io.imshow(np.stack([changed_labels * change_label, subject_labels * primary_label, target_labels*background_label], axis=-1))
-                    plt.show()'''
-                # print(np.mean(over_ratio1.sum(axis=0)[1:]), np.mean(over_ratio2.sum(axis=0)[1:]))
-                change_in_subject[ce[0], ce[1]] = np.mean(over_ratio2.sum(axis=0)[1:])
-                change_in_similarity[ce[0], ce[1]] = np.mean(over_ratio1.sum(axis=0)[1:])
-                overlap_target_total = np.logical_and(changed_labels > 0, target_labels > 0).astype(int).sum()
-                overlap_subject_total = np.logical_and(changed_labels > 0, subject_labels > 0).astype(int).sum()
+                overlap_ratio, exclusion_penalty = self._distance_from_target(changed_labels, target_labels, thresh_params)
+                change_in_similarity[ce[0], ce[1]] = overlap_ratio
+                subject_exclusions[ce[0], ce[1]] = exclusion_penalty
 
-                def exclusion_ratios(struct_labels, source_im, ref_im, overlap_vol):
-                    ref_label_range, ref_struct_vols = np.unique(ref_im, return_counts=True)
-                    src_label_range, src_struct_vols = np.unique(source_im, return_counts=True)
-                    '''mean_ref_struct_vol = np.mean(ref_struct_vols, where=ref_label_range > 0)
-                    total_ref_struct_vol = np.sum(ref_struct_vols)
-                    total_src_struct_vol = np.sum(src_struct_vols)'''
-                    try:
-                        excluded_vol_ratio = src_struct_vols[struct_labels]/np.mean(overlap_vol)
-                    except:
-                        print(src_label_range, struct_labels)
-                        io.imshow(np.stack([source_im, ref_im, np.zeros_like(source_im)], axis=-1))
-                        plt.show()
-                    excluded_vol_ratio = src_struct_vols[struct_labels] / np.mean(overlap_vol)
-                    excluded_mean = np.sum(excluded_vol_ratio)
-                    excl_volumes = src_struct_vols[struct_labels]
-                    excl_count = len(excl_volumes)
-                    src_no_excl = np.delete(src_label_range, struct_labels)
-                    src_excl_vol = src_struct_vols[src_no_excl]  # x of z
-                    src_excl_vol = src_excl_vol[src_no_excl > 0]
-                    ref_label_range, src_label_range = ref_label_range > 0, src_label_range > 0
-                    ref_struct_vols, src_struct_vols = ref_struct_vols[ref_label_range], src_struct_vols[src_label_range]  # ref and source volumes
-                    ref_count, src_count = len(ref_struct_vols), len(src_struct_vols)
-                    excl_to_src_mean_diff = excl_volumes.sum() - excl_count * np.mean(src_excl_vol)
-                    combined_count = excl_count + len(src_excl_vol)
-                    compensation_value = (excl_to_src_mean_diff/combined_count)/np.mean(ref_struct_vols)
-                    print("Src lengths", src_count, excl_count, len(src_excl_vol))
-                    print("Compensation value", compensation_value)
-                    print("Struct mean ratio", np.mean(src_excl_vol)/np.mean(ref_struct_vols))
-                    print("Exclusion to src", (src_struct_vols.sum() - excl_volumes.sum())/src_struct_vols.sum())
-                    print("Excl to ref means", np.mean(excl_volumes)/np.mean(ref_struct_vols))
-                    print("Product of ratios", (src_struct_vols.sum() - excl_volumes.sum())/src_struct_vols.sum()*(np.mean(excl_volumes)/np.mean(ref_struct_vols)))
-                    '''print("Average reference volume", mean_ref_struct_vol)
-                    print("Total excluded struct size", src_struct_vols[struct_labels].sum())
-                    print("Ratio of excluded src to average reference", excluded_vol_ratio)
-                    print("Exclusion value", excluded_mean)'''
-                    src_to_overlap = np.sqrt(np.matmul(over_ratio1[1:, 1:], ref_struct_vols)/src_struct_vols)
-                    mean_src_overlap = np.mean(src_to_overlap)
-                    print("Overlap shape", mean_src_overlap)
-                    excluded_to_ref = np.mean(excl_volumes)/np.mean(ref_struct_vols)
-                    print("Excluded struct size to ref size", excluded_to_ref)
-                    print("From overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]) - (1 - mean_src_overlap - excluded_to_ref))
-                    return excluded_mean
-                # print("#*#", excluded1, "*", excluded2)
-                if len(excluded1[0]) > 1:
-                    print("Thresholds1:", thresh_params)
-                    print(excluded1[0][1:], excluded1[1][1:])
-                    change_vol = np.sum(np.greater(changed_labels, 0).astype(int))
-                    targ_vol = np.sum(np.greater(target_labels, 0).astype(int))
-                    print("Target volume total", targ_vol)
-                    print("Change volume total", change_vol)
-                    print("Change without excl ratio", (change_vol - excluded1[1][1:].sum())/change_vol)
-                    '''io.imshow(changed_labels)
-                    plt.show()'''
-                    '''if thresh_params.tolist() in exclusion_list:
-                        excl_overlay = np.stack([np.greater(changed_labels, 0).astype('uint8') * 255, np.greater(target_labels, 0).astype('uint8') * 255,
-                                            np.zeros_like(target_labels).astype('uint8')], axis=-1)
-                        saveIm("ExclusionMatch_" + "l" + str(thresh_params[0]) + "h" + str(thresh_params[1]) + ".png", excl_overlay)'''
-                    subject_exclusions[ce[0], ce[1]] = exclusion_ratios(excluded1[0][1:], changed_labels, target_labels, overlap_target_total)
-                    print("Overlap ratio", np.mean(over_ratio1.sum(axis=0)[1:]))
-                    #print("Similarity value:", np.mean(over_ratio1.sum(axis=0)[1:]))
-
-                if len(excluded2[0]) > 1:
-                    print("Thresholds2:", thresh_params)
-                    print(excluded2[0][1:], excluded2[1][1:])
-                    target_exclusions[ce[0], ce[1]] = exclusion_ratios(excluded2[0][1:], changed_labels, subject_labels, overlap_subject_total)
-                    #print("Similarity value:", np.mean(over_ratio2.sum(axis=0)[1:]))
-
-        fig1, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
-        sns.heatmap(change_in_subject, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax1)
-        ax1.set_title("Change relative to Subject")
+        change_in_similarity2 = change_in_similarity - subject_exclusions
+        fig1, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax1)
+        ax1.set_title("Change relative to Target")
         ax1.set_xlabel("High Thresh")
         ax1.set_ylabel("Low Thresh")
-        sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax2)
-        ax2.set_title("Change relative to Target")
+        sns.heatmap(subject_exclusions, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax2)
+        ax2.set_title("Structure not in Target")
         ax2.set_xlabel("High Thresh")
         ax2.set_ylabel("Low Thresh")
-        sns.heatmap(target_exclusions, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax3)
-        ax3.set_title("Structure not in Subject")
+        sns.heatmap(change_in_similarity2, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax3)
+        ax3.set_title("Change relative to Target after exclusions")
         ax3.set_xlabel("High Thresh")
         ax3.set_ylabel("Low Thresh")
-        sns.heatmap(subject_exclusions, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax4)
-        ax4.set_title("Structure not in Target")
-        ax4.set_xlabel("High Thresh")
-        ax4.set_ylabel("Low Thresh")
-
-        fig2, ((ax5, ax6), (ax7, ax8)) = plt.subplots(2, 2)
-        change_in_subject2 = change_in_subject - target_exclusions
-        change_in_similarity2 = change_in_similarity - subject_exclusions
-        sns.heatmap(change_in_subject2, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax5)
-        ax5.set_title("Change relative to Subject after exclusions")
-        ax5.set_xlabel("High Thresh")
-        ax5.set_ylabel("Low Thresh")
-        sns.heatmap(change_in_similarity2, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax6)
-        ax6.set_title("Change relative to Target after exclusions")
-        ax6.set_xlabel("High Thresh")
-        ax6.set_ylabel("Low Thresh")
-        sns.heatmap(change_in_subject, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax7)
-        ax7.set_title("Change relative to Subject")
-        ax7.set_xlabel("High Thresh")
-        ax7.set_ylabel("Low Thresh")
-        sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax8)
-        ax8.set_title("Change relative to Target")
-        ax8.set_xlabel("High Thresh")
-        ax8.set_ylabel("Low Thresh")
         plt.show()
 
-        '''sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist())
-        plt.title("Change relative to Target")
-        plt.xlabel("High Thresh")
-        plt.ylabel("Low Thresh")
-        saveFigure("Target_noExcl_BothFlipped.png")
-        plt.show()'''
-
-        '''thresh_text_arr = np.empty_like(result_array).astype(str)
-        thresh_arr_coords = np.argwhere(thresh_text_arr == 0)
-        for tac in thresh_arr_coords:
-            thresh_values = thresholding_combos[tac]
-            print(thresh_values)
-            print(type(thresh_values))
-            print(type(thresh_values[0]), str(thresh_values[1]))
-            thresh_text_arr[tac] = str(int(thresh_values[0])) + "," + str(int(thresh_values[1]))'''
-        '''fig3, (ax9, ax10) = plt.subplots(1, 2)
-        sns.heatmap(empty_grid, annot=thresholding_combos[..., 0].astype(int).astype(str), fmt='', linewidths=.5, cbar=False, ax=ax9)
-        sns.heatmap(empty_grid, annot=thresholding_combos[..., 1].astype(int).astype(str), fmt='', linewidths=.5, cbar=False, ax=ax10)
-        ax9.set_title("Low Threshold")
-        ax10.set_title("High Threshold")
-        # saveFigure("Threshold_Perm.png")
-        plt.show()'''
-
-
-        '''sns.heatmap(change_in_similarity, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax2)
-        ax2.set_title("Change relative to Target")
-        ax2.set_xlabel("High Thresh")
-        ax2.set_ylabel("Low Thresh")
-        plt.show()'''
-        '''fig2, (ax3, ax4) = plt.subplots(1, 2)
-        sns.heatmap(volume_mismatch, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax3)
-        ax3.set_title("Average Volume not shared by either image")
-        ax3.set_xlabel("High Thresh")
-        ax3.set_ylabel("Low Thresh")
-        sns.heatmap(mismatch_ratio, xticklabels=high_res.astype(str).tolist(), yticklabels=low_res.astype(str).tolist(), ax=ax4)
-        ax4.set_title("Ratio of Target Image total volume vs total unshared volume between both images")
-        ax4.set_xlabel("High Thresh")
-        ax4.set_ylabel("Low Thresh")
-        plt.show()'''
 
     def high_and_low_testing(self):
         '''
@@ -1060,9 +976,6 @@ class thresholding_metrics(AutoThresholder):
         # if the logic below fails then it means that all structures in both images are perfectly aligned and equal in shape, volume and count
         # self._composite_image_preview(image1, image2, overlap_image)
         overlap_regions, overlap_count = ndi.label(overlap_image)
-        '''print("Overlap regions:", overlap_count)
-        io.imshow(overlap_regions)
-        plt.show()'''
         if not labels_provided:
             binary1 = image1 > 0
             binary2 = image2 > 0
@@ -1097,6 +1010,7 @@ class thresholding_metrics(AutoThresholder):
         im2_mapping = self._ordered_mapping_overlaps(im2_overlap_structs)
         '''io.imshow(np.amax(np.stack([structure_seg1*overlap_image, structure_seg2*overlap_image, np.zeros_like(overlap_image)], axis=-1), axis=0))
         plt.show()'''
+        print("There are", overlap_count, " overlapping regions")
         overlap_pair_volume_shared = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
         for over_regions in range(1, overlap_count+1):
             isolated_overlap = np.equal(overlap_regions, over_regions).astype('uint8')
@@ -1716,7 +1630,8 @@ class thresholding_metrics(AutoThresholder):
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.distance_from_target()
+    # system_analyst.large_excluded_test()
+    system_analyst.distribution_from_target()
     # system_analyst.high_and_low_testing()
     # system_analyst.structure_hunting()
     # system_analyst.stack_hist_plot()
