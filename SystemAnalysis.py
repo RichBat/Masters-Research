@@ -1,4 +1,6 @@
 import json
+import time
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -140,7 +142,7 @@ class thresholding_metrics(AutoThresholder):
         return diff_ratio, diff_vol
 
     def large_excluded_test(self):
-        image_path = "C:\\Users\\richy\Desktop\\SystemAnalysis_files\\MAX_CCCP_1C=0T=0.tif"
+        image_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MAX_CCCP_1C=0T=0.tif"
         subject_thresholds = [20, 23]
         target_thresholds = [26, 95]
 
@@ -155,7 +157,7 @@ class thresholding_metrics(AutoThresholder):
         print(overlap, penalty)
 
     def _distance_from_target(self, changed_labels, target_labels, thresholds=None):
-        over_ratio1, vol_ratio1, structure_pairing1, excluded1 = self._structure_overlap(changed_labels, target_labels,
+        over_ratio1, vol_ratio1, structure_pairing1, excluded1 = self._structure_overlap_effi(changed_labels, target_labels,
                                                                                          labels_provided=True)
         # diff_ratio, diff_vol = self._image_diff_measure(target_labels, changed_labels)
         overlap_ratio = np.mean(over_ratio1.sum(axis=0)[1:])
@@ -177,7 +179,6 @@ class thresholding_metrics(AutoThresholder):
             print("Excluded struct size to ref size", mean_src_overlap)
             print("Mean ratio excl to ref", excluded_to_ref)
             print("Excluded to src mean", np.mean(ref_struct_vols)/np.mean(src_struct_vols))
-            multiple_count = math.pow(0.1, len(str(int(excluded_to_ref))))
             print("Absolute mean diff", abs(np.mean(excl_volumes) - np.mean(ref_struct_vols)))
             print("Absolute mean diff src", abs(np.mean(excl_volumes) - np.mean(src_excl_vol)))
             mean_ref_excl_ratio = 0.5 * excluded_to_ref if excluded_to_ref <= 1 else 0.5 + 0.5 * excluded_to_ref * (np.mean(ref_struct_vols)/np.mean(src_struct_vols))
@@ -200,7 +201,7 @@ class thresholding_metrics(AutoThresholder):
         exclusion_penalty = 0
         if len(excluded1[0]) > 1:
             print("Thresholds1:", thresholds)
-            print(excluded1[0][1:], excluded1[1][1:])
+            # print(excluded1[0][1:], excluded1[1][1:])
             targ_vol = np.sum(np.greater(target_labels, 0).astype(int))
             print("Target volume total", targ_vol)
             print("Change volume total", change_vol)
@@ -222,7 +223,7 @@ class thresholding_metrics(AutoThresholder):
         measured.
         :return:
         '''
-        image_path = "C:\\Users\\richy\Desktop\\SystemAnalysis_files\\MAX_N2Con_3C=1T=0.png"
+        image_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MAX_N2Con_3C=1T=0.png"
         vol_test_im_puncta = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0.tif", "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0Option0.tif"]
         cleaned_image = []
 
@@ -243,7 +244,7 @@ class thresholding_metrics(AutoThresholder):
         plt.show()'''
         # this is to select the structure for comparison
         mip_image = io.imread(image_path)
-        test_im = self._threshold_image(mip_image, 17, 60)
+        '''test_im = self._threshold_image(mip_image, 17, 60)
         label_array, number_of_labels = ndi.label(test_im)
         label_list, label_sizes = np.unique(label_array, return_counts=True)
         label_list, label_sizes = label_list[1:], label_sizes[1:]
@@ -264,7 +265,8 @@ class thresholding_metrics(AutoThresholder):
         xrange, yrange = [xmin, xmax], [ymin, ymax]
         array_ranges = [xrange[1] - xrange[0], yrange[1] - yrange[0]]
         reduced_canvas = np.zeros(tuple(array_ranges))
-        reduced_canvas += (mip_image * isolated_structure[0])[xrange[0]:xrange[1], yrange[0]:yrange[1]]
+        reduced_canvas += (mip_image * isolated_structure[0])[xrange[0]:xrange[1], yrange[0]:yrange[1]]'''
+        reduced_canvas = mip_image
         # reduced_canvas += (mip_image * isolated_structure[1] * secondary_struct_rescale)[xrange[0]:xrange[1], yrange[0]:yrange[1]].astype(int)
         def test_structure_thresh(low_thresh, high_thresh):
             return self._threshold_image(reduced_canvas, low_thresh, high_thresh)
@@ -301,41 +303,16 @@ class thresholding_metrics(AutoThresholder):
         iteration_order[np.nonzero(iteration_order + 1)] = indice_array
         iter_step_size = 0.5
         iteration_ranges = np.arange(0, np.max(iteration_order) + iter_step_size, iter_step_size)
-        change_in_subject = np.zeros(tuple([len(low_res), len(high_res)]))
         change_in_similarity = np.zeros(tuple([len(low_res), len(high_res)]))
-        volume_mismatch = np.zeros(tuple([len(low_res), len(high_res)]))
-        mismatch_ratio = np.zeros(tuple([len(low_res), len(high_res)]))
         subject_exclusions = np.zeros(tuple([len(low_res), len(high_res)]))
-        target_exclusions = np.zeros(tuple([len(low_res), len(high_res)]))
-        empty_grid = np.zeros_like(result_array)
         thresholding_combos = np.stack([(np.ones_like(result_array).T * low_res).T, np.ones_like(result_array) * high_res], axis=-1)
         thresholding_combos[..., 0] = np.clip(thresholding_combos[..., 0], 0, thresholding_combos[..., 1])
-        '''
-        # Low and High threshold ranges respectively (separated from thresholding_comb)
-        print(thresholding_comb[:, 0, 0])
-        print(thresholding_comb[0, :, 1])
-        # Low threshold is flipped for axis=0
-        print(np.flip(thresholding_comb, axis=0)[:, 0, 0])
-        print(np.flip(thresholding_comb, axis=0)[0, :, 1])
-        # High threshold is flipped for axis=1
-        print(np.flip(thresholding_comb, axis=1)[:, 0, 0])
-        print(np.flip(thresholding_comb, axis=1)[0, :, 1])
-        # Both Low and High thresholds flipped
-        print(np.flip(np.flip(thresholding_comb, axis=0), axis=1)[:, 0, 0])
-        print(np.flip(np.flip(thresholding_comb, axis=0), axis=1)[0, :, 1])'''
         target_image = test_structure_thresh(thresholding_combos[-1, -1, 0], thresholding_combos[-1, -1, 1])
         subject_image = test_structure_thresh(thresholding_combos[0, 0, 0], thresholding_combos[0, 0, 1])
         target_labels, target_label_count = ndi.label(target_image)
-        subject_labels, subject_label_count = ndi.label(subject_image)
-        '''saveIm("TargetLabelled.png", target_labels)
-        saveIm("SubjectLabelled.png", subject_labels)'''
-        '''saveIm("Overlaid_labelled.png", np.stack([np.greater(subject_labels, 0).astype('uint8') * 255, np.greater(target_labels, 0).astype('uint8') * 255,
-                                                  np.greater(subject_labels, 0).astype('uint8') * np.greater(target_labels, 0).astype('uint8') * 255], axis=-1))'''
-        '''io.imshow(target_labels)
-        plt.show()
-        io.imshow(subject_labels)
-        plt.show()'''
-        exclusion_list = [[84, 140], [84, 172], [96, 140], [100, 168], [100, 172]]
+        total_permutations = iteration_order.shape[0] * iteration_order.shape[1]
+        print("Number of iterations:", total_permutations)
+        iter_count = 0
         for i in iteration_ranges:
             if iter_step_size == 1:
                 viable_elements = np.logical_and(np.less_equal(iteration_order, i), np.greater(iteration_order, i - 1))  # for when the iteration step size is 1
@@ -349,6 +326,8 @@ class thresholding_metrics(AutoThresholder):
                 overlap_ratio, exclusion_penalty = self._distance_from_target(changed_labels, target_labels, thresh_params)
                 change_in_similarity[ce[0], ce[1]] = overlap_ratio
                 subject_exclusions[ce[0], ce[1]] = exclusion_penalty
+                iter_count += 1
+                print("Iterations remaining:", total_permutations - iter_count)
 
         change_in_similarity2 = change_in_similarity - subject_exclusions
         fig1, (ax1, ax2, ax3) = plt.subplots(1, 3)
@@ -958,6 +937,70 @@ class thresholding_metrics(AutoThresholder):
         io.imshow(projected_2d)
         plt.show()
 
+    def _structure_overlap_effi(self, image1, image2, labels_provided=False):
+        '''
+        This method is designed to determine what labelled structures from each of the images overlap. From here the percentage overlap relative to the
+        overlapping structures complete volumes could be calculated as well as a relationship between structure aggregation? (one large overlaps with many
+        small). When looking at historical change then image1 must be old and image2 new threshed version
+        Have im1 and im2 already be labeled arrays instead. This way it is known that the labels will correspond when passed into this function for future
+        iterations.
+        :param image1: subject image that calculations are in reference to
+        :param image2: reference image that the subject is compared to
+        :return: over_ratio, vol_ratio, subject_match_relations, excluded_structures
+        '''
+
+        overlap_image = np.logical_and(np.greater(image1, 0), np.greater(image2, 0))
+        excluded_structures = np.logical_not(overlap_image, where=np.logical_or(np.greater(image1, 0), np.greater(image2, 0))).astype('uint8')
+        # the where argument designates where the non-zero regions (not background) are for either image
+        # if the logic below fails then it means that all structures in both images are perfectly aligned and equal in shape, volume and count
+        # self._composite_image_preview(image1, image2, overlap_image)
+        overlap_regions, overlap_count = ndi.label(overlap_image)
+        if not labels_provided:
+            binary1 = image1 > 0
+            binary2 = image2 > 0
+            structure_seg1, structure_count1 = ndi.label(binary1)  # this labeled array should be an argument
+            structure_seg2, structure_count2 = ndi.label(binary2)  # same for this labeled array
+        else:
+            structure_seg1, structure_seg2 = image1, image2
+            structure_count1, structure_count2 = len(np.unique(structure_seg1)[1:]), len(np.unique(structure_seg2)[1:])
+        valid_structures = np.stack([structure_seg1 * overlap_image, structure_seg2 * overlap_image], axis=-1)
+        reordered = np.reshape(valid_structures, (-1, valid_structures.shape[2]))
+        invalid_pairs = np.logical_not(np.any(reordered == 0, axis=-1))
+        pairings, pairing_sizes = np.unique(reordered[invalid_pairs], return_counts=True, axis=0)
+        pairings_list = np.split(pairings.T, indices_or_sections=2, axis=0)
+        paired_structures = np.zeros(tuple([structure_count1 + 1, structure_count2 + 1]))
+        # pairing_array = pairing_sizes[:, np.newaxis]
+        paired_structures[pairings_list[0][0], pairings_list[1][0]] = pairing_sizes
+        overlapped_structures = np.nonzero(paired_structures)  # this will return the structure pairs that overlap.
+        subject_im_labels, subject_im_volumes = np.unique(structure_seg1, return_counts=True)  # will return the struct label list for im1 and the volumes
+        ref_im_labels, ref_im_volumes = np.unique(structure_seg2, return_counts=True)
+        def _overlap_ratios():
+            included_subject = overlapped_structures[0]  # the first dim in paired_structures is for the subject image struct labels
+            included_reference = overlapped_structures[1]
+            excluded_subj_structs = np.setdiff1d(subject_im_labels, included_subject)  # this should return the labels of the ignored structures
+            excluded_ref_structs = np.setdiff1d(ref_im_labels, included_reference)
+            excluded_struct_vol = (excluded_subj_structs, subject_im_volumes[excluded_subj_structs], excluded_ref_structs, ref_im_volumes[excluded_ref_structs])
+            over_ratio = np.zeros_like(paired_structures)
+            over_ratio[overlapped_structures] = 1
+            over_ratio[included_subject] *= np.divide(paired_structures[included_subject].T, subject_im_volumes[included_subject]).T  # the transpose is done for broadcasting. 0 < ratio <= 1
+            over_ratio[:, included_reference] *= np.divide(paired_structures[:, included_reference], ref_im_volumes[included_reference])
+            vol_ratio = (paired_structures > 0).astype(float)
+            vol_ratio[included_subject] = (vol_ratio[included_subject].T * subject_im_volumes[included_subject]).T
+            vol_ratio[:, included_reference] = (vol_ratio[:, included_reference] / ref_im_volumes[included_reference])
+            ''' the np.divide approach could be used but where the ratio is no transposed back to get the overlap percentage relative to the reference.
+            The value of this is that the distance of the subject from the reference should also take into account the fully excluded structures on each side.
+            '''
+            subject_match_relations = {a: [] for a in np.unique(included_subject)}  # this will make the pair storage dictionary
+            pair_wise = np.argwhere(paired_structures)
+            for pw in pair_wise:
+                subject_match_relations[pw[0]].append(pw[1])
+            ''' The below will return the ratio of overlapped volume relative to the complete volume of the original/prior structure. The vol_ratio is the 
+            ratio between the old image and the new image. The subject_match_relations is a dictionary for the currently overlapping structures.
+            excluded_structs is a tuple with the first elem for the im1 structs not in im2 and the second elem is for the im2 structs not in im1'''
+            return over_ratio, vol_ratio, subject_match_relations, excluded_struct_vol
+
+        return _overlap_ratios()
+
     def _structure_overlap(self, image1, image2, labels_provided=False):
         '''
         This method is designed to determine what labelled structures from each of the images overlap. From here the percentage overlap relative to the
@@ -984,6 +1027,16 @@ class thresholding_metrics(AutoThresholder):
         else:
             structure_seg1, structure_seg2 = image1, image2
             structure_count1, structure_count2 = len(np.unique(structure_seg1)[1:]), len(np.unique(structure_seg2)[1:])
+        starting_time1 = time.process_time_ns()
+        valid_structures = np.stack([structure_seg1 * overlap_image, structure_seg2 * overlap_image], axis=-1)
+        reordered = np.reshape(valid_structures, (-1, valid_structures.shape[2]))
+        print("Flattened shape", reordered.shape)
+        invalid_pairs = np.logical_not(np.any(reordered == 0, axis=-1))
+        pairings, pairing_sizes = np.unique(reordered[invalid_pairs], return_counts=True, axis=0)
+        end_time1 = time.process_time_ns()
+        print("Time1", end_time1 - starting_time1)
+        # pairing_array = pairing_sizes[:, np.newaxis]
+        # print("Pairings to volumes \n", np.append(pairings, pairing_array, axis=-1))
         # below will retrieve the labels of the image structures that are within the overlap regions
         im1_overlap_structs = np.unique(structure_seg1 * overlap_image).tolist()
         im1_overlap_structs.remove(0)
@@ -1006,12 +1059,11 @@ class thresholding_metrics(AutoThresholder):
               set(im2_overlap_structs).intersection(im2_excluded_structs))'''
         # This will be an array for the structure pairings. Currently the array will contain all structures (not just the overlapping ones)
         paired_structures = np.zeros(tuple([structure_count1+1, structure_count2+1]))
-        im1_mapping = self._ordered_mapping_overlaps(im1_overlap_structs)
-        im2_mapping = self._ordered_mapping_overlaps(im2_overlap_structs)
         '''io.imshow(np.amax(np.stack([structure_seg1*overlap_image, structure_seg2*overlap_image, np.zeros_like(overlap_image)], axis=-1), axis=0))
         plt.show()'''
         print("There are", overlap_count, " overlapping regions")
         overlap_pair_volume_shared = np.zeros(tuple([len(im1_overlap_structs), len(im2_overlap_structs)]))
+        start_time2 = time.process_time_ns()
         for over_regions in range(1, overlap_count+1):
             isolated_overlap = np.equal(overlap_regions, over_regions).astype('uint8')
             '''io.imshow(isolated_overlap)
@@ -1037,7 +1089,11 @@ class thresholding_metrics(AutoThresholder):
         ''' The change to paired_structures indexing across the full structure list means that when reading these nonzero tuples they directly can
         correspond to the respective image labels as opposed to requiring a mapping function to reverse the _ordered_mapping_overlaps relationship'''
         # print("Structure pairs", paired_structures)
+        end_time2 = time.process_time_ns()
+        print("Time2", end_time2 - start_time2)
         overlapped_structures = np.nonzero(paired_structures)  # this will return the structure pairs that overlap.
+        print("Overlapping Structures")
+        print(paired_structures)
         subject_im_labels, subject_im_volumes = np.unique(structure_seg1, return_counts=True)  # will return the struct label list for im1 and the volumes
         ref_im_labels, ref_im_volumes = np.unique(structure_seg2, return_counts=True)
         '''non_zero = np.greater(subject_im_labels, 0)
@@ -1050,35 +1106,16 @@ class thresholding_metrics(AutoThresholder):
         def _overlap_ratios():
             included_subject = overlapped_structures[0]  # the first dim in paired_structures is for the subject image struct labels
             included_reference = overlapped_structures[1]
-            ''' included_subject should contain no 0 coords since the indices mapping to struct labels and the background is ignored (kept to zero) thus
-            will be zero for paired_structures[0, :] == paired_structures[:, 0] == 0 #### This should be the case but must be tested'''
-            '''nonzero returns a tuple of two arrays of x-coord and y-coord. x-coord will contain multiple of the same for the different y-coord pairings.
-            Any struct label not in x-coord at all means that it overlaps with no structures'''
             excluded_subj_structs = np.setdiff1d(subject_im_labels, included_subject)  # this should return the labels of the ignored structures
             excluded_ref_structs = np.setdiff1d(ref_im_labels, included_reference)
             excluded_struct_vol = (excluded_subj_structs, subject_im_volumes[excluded_subj_structs], excluded_ref_structs, ref_im_volumes[excluded_ref_structs])
-            '''print("Excluded structures:", excluded_subj_structs)
-            print("Subject image structure label matches?")
-            print(subject_im_labels)
-            print(subject_im_labels[included_subject])
-            print(included_subject)
-            print("****################################################****")'''
             over_ratio = np.zeros_like(paired_structures)
             over_ratio[overlapped_structures] = 1
-            '''print('Printing overlap ratio for testing', over_ratio)
-            print('Subject volumes', subject_im_volumes[included_subject])
-            print('Reference volumes', ref_im_volumes[included_reference])'''
             over_ratio[included_subject] *= np.divide(paired_structures[included_subject].T, subject_im_volumes[included_subject]).T  # the transpose is done for broadcasting. 0 < ratio <= 1
             over_ratio[:, included_reference] *= np.divide(paired_structures[:, included_reference], ref_im_volumes[included_reference])
-            # print("Overlap ratio", over_ratio)
             vol_ratio = (paired_structures > 0).astype(float)
             vol_ratio[included_subject] = (vol_ratio[included_subject].T * subject_im_volumes[included_subject]).T
             vol_ratio[:, included_reference] = (vol_ratio[:, included_reference] / ref_im_volumes[included_reference])
-            '''print(np.greater(over_ratio, 0).astype(int).sum(axis=0))
-            print(np.greater(over_ratio, 0).astype(int).sum(axis=1))'''
-            complete_overlap = np.greater_equal(over_ratio*vol_ratio, 1)  # 1 should be max
-            perfect_structs = np.nonzero(complete_overlap)[0]  # these structures are perfectly matching with the
-            # print("Perfect Matches", perfect_structs)
             ''' the np.divide approach could be used but where the ratio is no transposed back to get the overlap percentage relative to the reference.
             The value of this is that the distance of the subject from the reference should also take into account the fully excluded structures on each side.
             '''
@@ -1086,8 +1123,6 @@ class thresholding_metrics(AutoThresholder):
             pair_wise = np.argwhere(paired_structures)
             for pw in pair_wise:
                 subject_match_relations[pw[0]].append(pw[1])
-            '''print("Order test:", set(list(subject_match_relations)) == set(included_subject.tolist()))
-            print("Structure pairs", subject_match_relations)'''
             ''' The below will return the ratio of overlapped volume relative to the complete volume of the original/prior structure. The vol_ratio is the 
             ratio between the old image and the new image. The subject_match_relations is a dictionary for the currently overlapping structures.
             excluded_structs is a tuple with the first elem for the im1 structs not in im2 and the second elem is for the im2 structs not in im1'''
@@ -1627,11 +1662,19 @@ class thresholding_metrics(AutoThresholder):
         sample_grid.map(sns.barplot, "Source", "ThreshValue", "ThreshType", **{"palette":"deep"})'''
         plt.show()
 
+    def low_threshold_similarity(self):
+        expert_thresh_file = "C:\\RESEARCH\\Mitophagy_data\\gui params\\rensu_thresholds.json"
+        expert_thresholds = {}
+        with open(expert_thresh_file, "r") as j:
+            expert_thresholds = json.load(j)
+        print(expert_thresholds)
+
 if __name__ == "__main__":
-    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
+    system_analyst.low_threshold_similarity()
     # system_analyst.large_excluded_test()
-    system_analyst.distribution_from_target()
+    # system_analyst.distribution_from_target()
     # system_analyst.high_and_low_testing()
     # system_analyst.structure_hunting()
     # system_analyst.stack_hist_plot()
