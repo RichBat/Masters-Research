@@ -161,6 +161,10 @@ class thresholding_metrics(AutoThresholder):
                                                                                          labels_provided=True)
         # diff_ratio, diff_vol = self._image_diff_measure(target_labels, changed_labels)
         overlap_ratio = np.mean(over_ratio1.sum(axis=0)[1:])
+        if overlap_ratio == 0:
+            io.imshow(np.greater(np.mean(np.stack([np.greater(changed_labels, 0).astype('uint8'), np.greater(target_labels, 0).astype('uint8'),
+                                np.zeros_like(changed_labels).astype('uint8')], axis=-1), axis=0), 0).astype('uint8') * 255)
+            plt.show()
         change_vol = np.sum(np.greater(changed_labels, 0).astype(int))
         print("Calculating exclusions")
         def exclusion_ratios(struct_labels, source_im, ref_im):
@@ -200,7 +204,7 @@ class thresholding_metrics(AutoThresholder):
         # print("#*#", excluded1, "*", excluded2)
         exclusion_penalty = 0
         if len(excluded1[0]) > 1:
-            print("Thresholds1:", thresholds)
+            print("Thresholds1:", excluded1[0])
             # print(excluded1[0][1:], excluded1[1][1:])
             targ_vol = np.sum(np.greater(target_labels, 0).astype(int))
             print("Target volume total", targ_vol)
@@ -1335,7 +1339,11 @@ class thresholding_metrics(AutoThresholder):
 
     def analyze_low_thresholds(self, save_path=None, experts=True):
         values_for_experts = {}
+        file_count = len(self.file_list)
+        file_counter = 1
         for f in self.file_list:
+            print("Busy with file", str(file_counter), "of", str(file_count), "files")
+            file_counter += 1
             image = io.imread(f[0])
             time_set = self._prepare_image(image, f[1])
             for t in range(0, len(time_set)):
@@ -1662,17 +1670,52 @@ class thresholding_metrics(AutoThresholder):
         sample_grid.map(sns.barplot, "Source", "ThreshValue", "ThreshType", **{"palette":"deep"})'''
         plt.show()
 
-    def low_threshold_similarity(self):
-        expert_thresh_file = "C:\\RESEARCH\\Mitophagy_data\\gui params\\rensu_thresholds.json"
+    def low_threshold_similarity(self, low_thresh_location):
+        expert_thresh_file = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\rensu_thresholds.json"
         expert_thresholds = {}
+        auto_lows = {}
+        distance_results = {}
         with open(expert_thresh_file, "r") as j:
             expert_thresholds = json.load(j)
-        print(expert_thresholds)
+        with open(low_thresh_location, "r") as j:
+            auto_lows_data = json.load(j)
+        for f in self.file_list:
+            distance_results[f[1]] = {}
+            image = io.imread(f[0])
+            time_set = self._prepare_image(image, f[1])
+            expert_low_and_high = expert_thresholds[f[1]]
+            for t in range(0, len(time_set)):
+                img = time_set[t]
+                auto_low = auto_lows_data[f[1] + " " + str(t)]
+                low_values_to_calc = {"Normal":auto_low["Normal"], "Log":auto_low["Log"],
+                                      "Otsu":auto_low["Otsu"], "Triangle":auto_low["Triangle"]}
+                distance_results[f[1]][t] = self._low_thresh_sim_calc_disc(img, expert_low_and_high["low"],
+                                                                       low_values_to_calc, expert_low_and_high["high"])
+                with open("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\autoDist.json", "w") as j:
+                     json.dump(distance_results[f[1]][t], j)
+
+
+
+    def _low_thresh_sim_calc_disc(self, image, expert_low, auto_lows, high_thresh):
+        '''auto_min, auto_max = min(auto_lows), max(auto_lows)
+        range_min = min(expert_low, auto_min)
+        range_max = max(expert_low, auto_max)
+        res_range = range_max - range_min'''
+        target_image = self._threshold_image(image, int(expert_low), int(high_thresh))
+        target_labels, _unneeded = ndi.label(target_image)
+        auto_distances = {}
+        for auto_label, low_threshold in auto_lows.items():
+            varied_labels, _unneeded = ndi.label(self._threshold_image(image, int(low_threshold), int(high_thresh)))
+            distance, penalty = self._distance_from_target(varied_labels, target_labels)
+            if penalty >= distance:
+                print("Bad penalty!!!!!!!!!!!!!!!!!!!!!")
+            auto_distances[auto_label] = [str(distance), str(penalty), str(distance - penalty)]
+        return auto_distances
 
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.low_threshold_similarity()
+    system_analyst.low_threshold_similarity("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json")
     # system_analyst.large_excluded_test()
     # system_analyst.distribution_from_target()
     # system_analyst.high_and_low_testing()
@@ -1681,5 +1724,5 @@ if __name__ == "__main__":
     # system_analyst.compare_thresholds_between()
     # system_analyst._structure_overlap_test()
     # print(system_analyst.exp_threshes)
-    # system_analyst.analyze_low_thresholds("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\")
+    # system_analyst.analyze_low_thresholds(save_path="C:\\Users\\richy\Desktop\\SystemAnalysis_files\\System Metrics\\")
 
