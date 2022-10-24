@@ -162,6 +162,7 @@ class thresholding_metrics(AutoThresholder):
         # diff_ratio, diff_vol = self._image_diff_measure(target_labels, changed_labels)
         overlap_ratio = np.mean(over_ratio1.sum(axis=0)[1:])
         if overlap_ratio == 0:
+            print("THe label image is of shape", changed_labels.shape, target_labels.shape)
             io.imshow(np.greater(np.mean(np.stack([np.greater(changed_labels, 0).astype('uint8'), np.greater(target_labels, 0).astype('uint8'),
                                 np.zeros_like(changed_labels).astype('uint8')], axis=-1), axis=0), 0).astype('uint8') * 255)
             plt.show()
@@ -227,7 +228,8 @@ class thresholding_metrics(AutoThresholder):
         measured.
         :return:
         '''
-        image_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MAX_N2Con_3C=1T=0.png"
+        image_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\MAX_N2Con_3C=1T=0.png"
+        three_d_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\N2Con_3C=1T=0.tif"
         vol_test_im_puncta = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0.tif", "C:\\RESEARCH\\Mitophagy_data\\Time_split\\MIP\\CCCP_1C=0T=0Option0.tif"]
         cleaned_image = []
 
@@ -248,7 +250,7 @@ class thresholding_metrics(AutoThresholder):
         plt.show()'''
         # this is to select the structure for comparison
         mip_image = io.imread(image_path)
-        '''test_im = self._threshold_image(mip_image, 17, 60)
+        test_im = self._threshold_image(mip_image, 17, 60)
         label_array, number_of_labels = ndi.label(test_im)
         label_list, label_sizes = np.unique(label_array, return_counts=True)
         label_list, label_sizes = label_list[1:], label_sizes[1:]
@@ -267,18 +269,22 @@ class thresholding_metrics(AutoThresholder):
         ymin = min(min(structure_selection[0][1]), min(structure_selection[1][1]))
         ymax = max(max(structure_selection[0][1]), max(structure_selection[1][1]))
         xrange, yrange = [xmin, xmax], [ymin, ymax]
-        array_ranges = [xrange[1] - xrange[0], yrange[1] - yrange[0]]
+        '''array_ranges = [xrange[1] - xrange[0], yrange[1] - yrange[0]]
         reduced_canvas = np.zeros(tuple(array_ranges))
         reduced_canvas += (mip_image * isolated_structure[0])[xrange[0]:xrange[1], yrange[0]:yrange[1]]'''
-        reduced_canvas = mip_image
+        full_image = io.imread(three_d_path)
+        full_ranges = [full_image.shape[0], xrange[1] - xrange[0], yrange[1] - yrange[0]]
+        reduced_canvas = np.zeros(tuple(full_ranges))
+        reduced_canvas = full_image[:, xrange[0]:xrange[1], yrange[0]:yrange[1]]
+        print("3D shape", reduced_canvas.shape)
         # reduced_canvas += (mip_image * isolated_structure[1] * secondary_struct_rescale)[xrange[0]:xrange[1], yrange[0]:yrange[1]].astype(int)
         def test_structure_thresh(low_thresh, high_thresh):
             return self._threshold_image(reduced_canvas, low_thresh, high_thresh)
-        subject_thresholds = (20, 140)
-        target_thresholds = (100, 220)
+        subject_thresholds = (33, 48)
+        target_thresholds = (22, 62)
         subject_im, target_im = test_structure_thresh(subject_thresholds[0], subject_thresholds[1]), test_structure_thresh(target_thresholds[0], target_thresholds[1])
-        '''saveIm("Subject_Im.png", subject_im)
-        saveIm("Target_Im.png", target_im)'''
+        '''io.imshow(np.max(target_im, axis=0))
+        plt.show()'''
         overlayed_bases = np.stack([subject_im.astype('uint8') * 255, target_im.astype('uint8') * 255, np.zeros_like(subject_im).astype('uint8')], axis=-1)
         '''saveIm("startOverlay_" + "S" + str(subject_thresholds[0]) + "I" + str(subject_thresholds[1]) + "_T" + str(target_thresholds[0]) + "I" +
                str(target_thresholds[1]) + ".png", overlayed_bases)'''
@@ -968,7 +974,8 @@ class thresholding_metrics(AutoThresholder):
             structure_seg1, structure_seg2 = image1, image2
             structure_count1, structure_count2 = len(np.unique(structure_seg1)[1:]), len(np.unique(structure_seg2)[1:])
         valid_structures = np.stack([structure_seg1 * overlap_image, structure_seg2 * overlap_image], axis=-1)
-        reordered = np.reshape(valid_structures, (-1, valid_structures.shape[2]))
+        reordered = np.reshape(valid_structures, (-1, valid_structures.shape[-1]))
+        print("Reordeded shape", reordered.shape, valid_structures.shape)
         invalid_pairs = np.logical_not(np.any(reordered == 0, axis=-1))
         pairings, pairing_sizes = np.unique(reordered[invalid_pairs], return_counts=True, axis=0)
         pairings_list = np.split(pairings.T, indices_or_sections=2, axis=0)
@@ -1715,9 +1722,9 @@ class thresholding_metrics(AutoThresholder):
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.low_threshold_similarity("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json")
+    # system_analyst.low_threshold_similarity("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json")
     # system_analyst.large_excluded_test()
-    # system_analyst.distribution_from_target()
+    system_analyst.distribution_from_target()
     # system_analyst.high_and_low_testing()
     # system_analyst.structure_hunting()
     # system_analyst.stack_hist_plot()
