@@ -1699,7 +1699,7 @@ class thresholding_metrics(AutoThresholder):
                 distance_results[f[1]][t] = self._low_thresh_sim_calc_disc(img, expert_low_and_high["low"],
                                                                        low_values_to_calc, expert_low_and_high["high"])
                 with open("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\autoDist.json", "w") as j:
-                     json.dump(distance_results[f[1]][t], j)
+                     json.dump(distance_results, j)
 
 
 
@@ -1714,17 +1714,49 @@ class thresholding_metrics(AutoThresholder):
         for auto_label, low_threshold in auto_lows.items():
             varied_labels, _unneeded = ndi.label(self._threshold_image(image, int(low_threshold), int(high_thresh)))
             distance, penalty = self._distance_from_target(varied_labels, target_labels)
+            if distance == 0:
+                print("Zero overlap?")
             if penalty >= distance:
                 print("Bad penalty!!!!!!!!!!!!!!!!!!!!!")
             auto_distances[auto_label] = [str(distance), str(penalty), str(distance - penalty)]
         return auto_distances
 
+    def save_histogram(self, image_path, cutoff=None):
+        intensity_counts, intensities = histogram(io.imread(image_path))
+        thesis_figs = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Thesis Figures\\"
+        plt.plot(intensities, intensity_counts)
+        plt.axvline(x=cutoff, c='k')
+        plt.savefig(fname=thesis_figs + "hist.png")
+        plt.clf()
+        plt.cla()
+        log_counts = np.log1p(intensity_counts)
+        plt.plot(intensities, log_counts)
+        plt.axvline(x=cutoff, c='k')
+        plt.savefig(fname=thesis_figs + "hist_log.png")
+        plt.clf()
+        plt.cla()
+        if cutoff is not None:
+            valid_values = np.greater_equal(intensities, cutoff)
+            intensity_counts, intensities = intensity_counts[valid_values], intensities[valid_values]
+            log_counts = log_counts[valid_values]
+        plt.plot(intensities, intensity_counts)
+        plt.axvline(x=cutoff, c='k')
+        plt.savefig(fname=thesis_figs + "hist_cut.png")
+        plt.clf()
+        plt.cla()
+        plt.plot(intensities, log_counts)
+        plt.axvline(x=cutoff, c='k')
+        plt.savefig(fname=thesis_figs + "hist_log_cut.png")
+        plt.clf()
+        plt.cla()
+
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
     # system_analyst.low_threshold_similarity("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json")
+    system_analyst.save_histogram("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\CCCP_2C=1T=0.tif", 7)
     # system_analyst.large_excluded_test()
-    system_analyst.distribution_from_target()
+    # system_analyst.distribution_from_target()
     # system_analyst.high_and_low_testing()
     # system_analyst.structure_hunting()
     # system_analyst.stack_hist_plot()
