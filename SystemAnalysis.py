@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import math
 from skimage.exposure import histogram
 from skimage import data, io
+from skimage.metrics import structural_similarity
 import pandas as pd
 from os import listdir, makedirs
 from os.path import isfile, join, exists
@@ -1678,7 +1679,7 @@ class thresholding_metrics(AutoThresholder):
         plt.show()
 
     def low_threshold_similarity(self, low_thresh_location):
-        expert_thresh_file = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\rensu_thresholds.json"
+        expert_thresh_file = "C:\\RESEARCH\\Mitophagy_data\\gui params\\rensu_thresholds.json"
         expert_thresholds = {}
         auto_lows = {}
         distance_results = {}
@@ -1698,8 +1699,10 @@ class thresholding_metrics(AutoThresholder):
                                       "Otsu":auto_low["Otsu"], "Triangle":auto_low["Triangle"]}
                 distance_results[f[1]][t] = self._low_thresh_sim_calc_disc(img, expert_low_and_high["low"],
                                                                        low_values_to_calc, expert_low_and_high["high"])
-                with open("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\autoDist.json", "w") as j:
-                     json.dump(distance_results, j)
+                '''with open("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\autoDist.json", "w") as j:
+                     json.dump(distance_results, j)'''
+        for k, v in distance_results.items():
+            print(k, v)
 
 
 
@@ -1714,6 +1717,7 @@ class thresholding_metrics(AutoThresholder):
         for auto_label, low_threshold in auto_lows.items():
             varied_labels, _unneeded = ndi.label(self._threshold_image(image, int(low_threshold), int(high_thresh)))
             distance, penalty = self._distance_from_target(varied_labels, target_labels)
+
             if distance == 0:
                 print("Zero overlap?")
             if penalty >= distance:
@@ -1750,11 +1754,54 @@ class thresholding_metrics(AutoThresholder):
         plt.clf()
         plt.cla()
 
+    def generate_threshold_graphs(self):
+        thresh_metrics_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\"
+        auto_distances = {}
+        auto_lows = {}
+        df_dict = {"Sample":[], "Threshold Option":[], "Distance":[]}
+        with open(thresh_metrics_path + "autoDist.json", "r") as j:
+            for sample, dists in json.load(j).items():
+                actual_dists = dists["0"]
+                auto_distances[sample] = {"Normal":actual_dists["Normal"][2], "Log":actual_dists["Log"][2], "Otsu":actual_dists["Otsu"][2],
+                                          "Triangle":actual_dists["Triangle"][2]}
+        with open(thresh_metrics_path + "lw_thrsh_metrics.json", "r") as j:
+            for sample, thresholds in json.load(j).items():
+                chosen_thresh = "Normal" if thresholds["Normal"] >= thresholds["Otsu"] else "Log"
+                auto_lows[sample.split(" ")[0]] = {"Normal":thresholds["Normal"], "Log":thresholds["Log"], "Otsu":thresholds["Otsu"], "Triangle":thresholds["Triangle"],
+                                     "Chosen":chosen_thresh}
+
+        def box_setup():
+            for k, v in auto_lows.items():
+                dist_values = auto_distances[k]
+                dist_values["Knee"] = dist_values[v["Chosen"]]
+                for t in ["Otsu", "Triangle", "Knee"]:
+                    df_dict["Sample"].append(k)
+                    df_dict["Threshold Option"].append(t)
+                    df_dict["Distance"].append(float(dist_values[t]))
+
+        box_setup()
+        low_thresh_df = pd.DataFrame.from_dict(df_dict)
+        print(low_thresh_df)
+        sns.boxplot(data=low_thresh_df, y="Threshold Option", x="Distance", order=["Knee", "Otsu", "Triangle"])
+        plt.show()
+        thresh_option_mean = low_thresh_df[["Threshold Option", "Distance"]].groupby("Threshold Option").mean()
+        sns.barplot(data=thresh_option_mean, x=thresh_option_mean.index, y="Distance")
+        plt.show()
+
+
+    def generate_ihh_figure(self, im_path, low_thresh):
+        image = io.imread(im_path)
+        intensities, threshold_counts = self._efficient_hysteresis_iterative(image, low_thresh)
+        plt.plot(intensities, threshold_counts)
+        plt.show()
+
 if __name__ == "__main__":
-    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    # system_analyst.low_threshold_similarity("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json")
-    system_analyst.save_histogram("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\CCCP_2C=1T=0.tif", 7)
+    system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
+    # system_analyst.generate_threshold_graphs()
+    # system_analyst.low_threshold_similarity("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\lw_thrsh_metrics.json")
+    # system_analyst.save_histogram("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\CCCP_2C=1T=0.tif", 7)
     # system_analyst.large_excluded_test()
     # system_analyst.distribution_from_target()
     # system_analyst.high_and_low_testing()
