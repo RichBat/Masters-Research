@@ -1755,7 +1755,7 @@ class thresholding_metrics(AutoThresholder):
         plt.cla()
 
     def generate_threshold_graphs(self):
-        thresh_metrics_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\"
+        thresh_metrics_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System_metrics\\"
         auto_distances = {}
         auto_lows = {}
         df_dict = {"Sample":[], "Threshold Option":[], "Distance":[]}
@@ -1792,11 +1792,22 @@ class thresholding_metrics(AutoThresholder):
     def generate_ihh_figure(self, im_path, low_thresh):
         image = io.imread(im_path)
         intensities, threshold_counts = self._efficient_hysteresis_iterative(image, low_thresh)
-        plt.plot(intensities, threshold_counts)
+        intensities, threshold_counts = intensities[:-1], threshold_counts[:-1]
+        sns.lineplot(x=intensities, y=threshold_counts)
+        plt.xlabel("High Threshold Intensities")
+        plt.ylabel("Non-zero voxel count")
+        plt.show()
+        slopes, slope_points = self._get_slope(intensities, threshold_counts)
+        mving_slopes = self._moving_average(slopes, window_size=8)
+        sns.lineplot(x=slope_points, y=slopes)
+        plt.show()
+        sns.lineplot(x=slope_points, y=mving_slopes)
         plt.show()
 
+
+
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
     system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
     # system_analyst.generate_threshold_graphs()
