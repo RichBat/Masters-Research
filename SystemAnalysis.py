@@ -1789,27 +1789,58 @@ class thresholding_metrics(AutoThresholder):
         plt.show()
 
 
-    def generate_ihh_figure(self, im_path, low_thresh):
-        image = io.imread(im_path)
+    def generate_ihh_figure(self, im_path, low_thresh, sample_name = None, save_location = None):
+        if type(im_path) is str:
+            image = io.imread(im_path)
+        else:
+            image = im_path
         intensities, threshold_counts = self._efficient_hysteresis_iterative(image, low_thresh)
         intensities, threshold_counts = intensities[:-1], threshold_counts[:-1]
-        sns.lineplot(x=intensities, y=threshold_counts)
-        plt.xlabel("High Threshold Intensities")
-        plt.ylabel("Non-zero voxel count")
-        plt.show()
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+        if sample_name is not None:
+            fig.suptitle(sample_name)
+        sns.lineplot(x=intensities, y=threshold_counts, ax=ax1)
+        ax1.set_title("Original IHH")
+        ax1.set_xlabel("High Threshold Intensities")
+        ax1.set_ylabel("Non-zero voxel count")
         slopes, slope_points = self._get_slope(intensities, threshold_counts)
         mving_slopes = self._moving_average(slopes, window_size=8)
-        sns.lineplot(x=slope_points, y=slopes)
-        plt.show()
-        sns.lineplot(x=slope_points, y=mving_slopes)
-        plt.show()
+        sns.lineplot(x=slope_points, y=slopes, ax=ax2)
+        ax2.set_title("IHH Slope")
+        ax2.set_xlabel("High Threshold Intensities")
+        ax2.set_ylabel("Relative change in count")
+        sns.lineplot(x=slope_points, y=mving_slopes, ax=ax3)
+        ax3.set_title("Smoothed IHH Slope")
+        ax3.set_xlabel("High Threshold Intensities")
+        ax3.set_ylabel("Relative change in count")
+        if save_location is None:
+            plt.show()
+        else:
+            full_save_path = save_location + sample_name if sample_name is not None else save_location
+            ax1.figure.set_size_inches(8, 6)
+            ax2.figure.set_size_inches(8, 6)
+            ax3.figure.set_size_inches(8, 6)
+            plt.tight_layout()
+            plt.savefig(full_save_path, dpi=100)
+            plt.clf()
+            plt.cla()
+
+    def go_through_image_ihh(self, save_location=None):
+        for f in self.file_list:
+            print("Image currently", f[1])
+            image = self._grayscale(io.imread(f[0]))
+            lw_thrsh = self._low_select(img=image)[0]
+            print(lw_thrsh)
+            self._efficient_hysteresis_iterative_time(image, lw_thrsh)
+            # self.generate_ihh_figure(image, lw_thrsh, f[1], save_location=save_location)
 
 
 
 if __name__ == "__main__":
-    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
+    system_analyst.go_through_image_ihh("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\IHH_graphs_better\\")
+    # system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
     # system_analyst.generate_threshold_graphs()
     # system_analyst.low_threshold_similarity("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\lw_thrsh_metrics.json")
     # system_analyst.save_histogram("C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\CCCP_2C=1T=0.tif", 7)

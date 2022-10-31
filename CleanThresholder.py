@@ -1,4 +1,6 @@
 import json
+
+import numpy
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -371,7 +373,7 @@ class AutoThresholder:
         inverted_centroid = self._weighted_intensity_centroid(slopes[invert_knee:], invert_dict, vox_weight[invert_knee:], weighted_option)
         return inverted_centroid
 
-    def _weighted_intensity_centroid(self, values, weights, voxel_weights, weight_option=0):
+    def _weighted_intensity_centroid(self, values, weights, voxel_weights, weight_option=0, width_option=None):
         """
         This method will apply the weights for each value to the value. Values and voxel_weights must clip [knee:] in argument.
         The weighted window for each intensity should be calculated by applying the normalized voxel weight and the calculated weight.
@@ -385,6 +387,8 @@ class AutoThresholder:
         biased_centroid = 0
         window_width_weight = 0
         #print("Values", values)
+        if width_option is None:
+            width_option = weight_option
         for d in range(len(values), 0, -1):
             sum_scaled = 0
             weight_total = 0.0
@@ -409,10 +413,10 @@ class AutoThresholder:
                     weight_total = 1
                 biased_window_centroid = sum_scaled / weight_total
             biased_centroid += biased_window_centroid
-            if weight_option == 2:
+            if width_option == 2:
                 window_mass = self._mass_percentage(voxel_weights, d)
                 window_width_weight += window_mass
-            elif weight_option == 1:
+            elif width_option == 1:
                 window_width_weight += d / len(values)
             else:
                 window_width_weight = len(values)
@@ -602,7 +606,7 @@ class AutoThresholder:
         (https://github.com/scikit-image/scikit-image/blob/v0.19.2/skimage/filters/thresholding.py#L1159-L1203)
         :param image: ndArray
         :param low: float
-        :return:
+        :return: intensities, thresholded
         """
         img_max = image.max()
         thresh_width = img_max - low
@@ -627,6 +631,52 @@ class AutoThresholder:
         connected_to_high = sums > 0
         thresholded = connected_to_high[labels_low].astype('uint8')
         return thresholded.sum(), mask_high
+
+    def _efficient_hysteresis_iterative_time(self, image, low, mem_max=2):
+        img_max = image.max()
+        im_shape = image.shape
+        thresh_width = img_max - low
+        mask_low = image > low
+        labels_low, num_labels = ndi.label(mask_low)
+        thresholded = [None]*thresh_width
+        intensities = list(range(low+1, img_max+1))
+        num_range = np.arange(num_labels + 1)
+        memory_used = 1
+        print("Label count", num_labels)
+        for im_dim in im_shape:
+            memory_used *= im_dim
+        memory_used = 2 * memory_used/(1024**3)  # the 2 is that there will be a low mask image and a high mask image that each will use space
+        intens_total_range = img_max - low
+        memory_batch = int(mem_max/memory_used)  # the image batch size that is allowed
+        iteration_set = []
+        for t in range(math.ceil(intens_total_range/memory_batch) + 1):
+            iteration_set.append([t*memory_batch, (t+1)*memory_batch - 1])
+        iteration_set[-1][1] = img_max
+
+        '''print("Last iter", img_max)
+        print("Batch size", memory_batch)
+        print("Memory batches", iteration_set)'''
+
+        def get_low_layers(intens_iter_range):
+            low_shape = list(im_shape)
+            low_shape.append(len(intens_iter_range))
+            print(low_shape)
+            index_label_offsets = (((np.ones(tuple(low_shape), dtype=numpy.uint8) * intens_iter_range*num_labels).T * mask_low.T) + labels_low.T).T
+            return index_label_offsets
+
+        for mem_iter in iteration_set:
+            mem_range_size = mem_iter[1] - mem_iter[0] + 1
+            print("Memory batch size", mem_range_size)
+            low_label_sets = get_low_layers(np.arange(mem_range_size))  # of shape z by x by y by k where k is current mem batch size
+            '''
+            TO DO:
+            - create mask_high of same shape as low_label_sets 
+            - the provided num_range must be based on the expanded which can be inferred mathematically from the mem_range_size
+            - add catch for if mem_max leads to mem_batch < 1
+            - the memory calculation based on bits is not perfectly accurate as temporary copies and overheads cannot be accounted for
+            - refer to book for method and then compare with established for comparison
+            '''
+
 
     def test_iter_hyst(self):
         image_details = self.file_list[0]
@@ -871,10 +921,78 @@ class AutoThresholder:
         j.close()
         data_dict = self._dict_to_float(results)
 
+    def structure_count_diff(self, mip=False):
+        structure_diff_counts = {}
+        for sample_name, timeframes in self.sample_thresholds.items():
+            print("Sample Name: ", sample_name)
+            print("Threshold Details:", timeframes)
+            image = io.imread(self.image_paths[sample_name])
+            gray_image = self._grayscale(image)
+            if len(timeframes.keys()) == 1:
+                sample_count = self._structure_count_diff(gray_image, details=timeframes["0"], mip=mip)
+                if len(sample_count) != 0:
+                    structure_diff_counts[sample_name] = sample_count
+            else:
+                timelapse_count = {}
+                for time, timeframe_details in timeframes.items():
+                    image_set = self._timeframe_sep(gray_image, sample_name)
+                    timeframe_count = self._structure_count_diff(image_set[int(time)], details=timeframe_details, mip=mip)
+                    if len(timeframe_count) != 0:
+                        timelapse_count[time] = timeframe_count
+                structure_diff_counts[sample_name] = timelapse_count
+        print(structure_diff_counts)
+        with open("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\" + "Structure_count_diffs.json", 'w') as j:
+            json.dump(structure_diff_counts, j)
+
+    def _structure_count_diff(self, image, details, mip):
+        low_threshold = details["Low"]
+        structure_count_by_option = {}
+        if "Inverted" in details["High"] and "Logistic" in details["High"]:
+            orig_image = image
+            pairing_options = {}
+            option_list = list(details["High"]["Inverted"])
+            for op in option_list:
+                if op in details["High"]["Inverted"] and details["High"]["Logistic"]:
+                    pairing_options[op] = (details["High"]["Inverted"][op], details["High"]["Logistic"][op])
+            for po, threshes in pairing_options.items():
+                inverted_mask = apply_hysteresis_threshold(orig_image, float(low_threshold), float(threshes[0]))
+                logistic_mask = apply_hysteresis_threshold(orig_image, float(low_threshold), float(threshes[1]))
+                mask_difference = np.logical_xor(inverted_mask, logistic_mask).astype('int')
+                if mip:
+                    inverted_mask = np.amax(inverted_mask, axis=0)
+                    logistic_mask = np.amax(logistic_mask, axis=0)
+                inverted_small_struct = self._smallest_structure_size(inverted_mask, 0.1)
+                logistic_small_struct = self._smallest_structure_size(logistic_mask, 0.1)
+                smallest_struct_size = min(inverted_small_struct, logistic_small_struct)*0.98
+                smallest_struct_size = int(smallest_struct_size) if smallest_struct_size - int(smallest_struct_size) < 0.5 else int(math.ceil(smallest_struct_size))
+                if mip:
+                    mask_difference = np.amax(mask_difference, axis=0)
+                label_array, number_of_labels = ndi.label(mask_difference)
+                struct_count_limit = str(self._check_struct_bigger(label_array, smallest_struct_size))
+                if number_of_labels != 0:
+                    structure_count_by_option["Options " + str(po) + "-" + str(int(po) + 3)] = [str(number_of_labels), struct_count_limit]
+        return structure_count_by_option
+
+    def _smallest_structure_size(self, mask, percent_include=0.2):
+        la, nl = ndi.label(mask)
+        label_order, label_counts = np.unique(la, return_counts=True)
+        combined = np.column_stack((label_order, label_counts))
+        combined = combined[combined[:, -1].argsort()][:-1]
+        quantity = combined.shape[0]*percent_include
+        quantity = int(quantity) if int(quantity) - quantity < 0.5 else int(math.ceil(quantity))
+        quantity = quantity if quantity != 0 else 1
+        average_size = np.mean(combined[0:quantity, -1])
+        return average_size
+
+    def _check_struct_bigger(self, labels, smallest_size):
+        label_order, label_counts = np.unique(labels, return_counts=True)
+        valid_structs = np.greater(label_counts, smallest_size).astype(int)
+        return valid_structs.sum()
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     threshold_comparer = AutoThresholder(input_path)
-    # threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
+    threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
     # threshold_comparer.process_images(steepness=50)
     # threshold_comparer.get_threshold_results()
     # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
@@ -885,5 +1003,6 @@ if __name__ == "__main__":
     # "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"
     '''threshold_comparer.threshold_permutations(["CCCP_1C=0T=0.tif", "N2CCCP+Baf_3C=0T=0.tif", "N2Con_3C=0T=0.tif"], [6, 50], [1],
                                               "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")'''
-    threshold_comparer.test_steep_impact([6, 20, 30, 40], save_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\")
+    # threshold_comparer.test_steep_impact([6, 20, 30, 40], save_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\")
     # threshold_comparer.compare_results(4)
+    threshold_comparer.structure_count_diff(mip=False)
