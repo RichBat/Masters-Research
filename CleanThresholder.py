@@ -632,51 +632,79 @@ class AutoThresholder:
         thresholded = connected_to_high[labels_low].astype('uint8')
         return thresholded.sum(), mask_high
 
-    def _efficient_hysteresis_iterative_time(self, image, low, mem_max=2):
+    def _efficient_hysteresis_iterative_time(self, image, low, mem_max=2, use_prior=True):
         img_max = image.max()
         im_shape = image.shape
         thresh_width = img_max - low
         mask_low = image > low
         labels_low, num_labels = ndi.label(mask_low)
-        thresholded = [None]*thresh_width
-        intensities = list(range(low+1, img_max+1))
-        num_range = np.arange(num_labels + 1)
+        thresholded = [None]*thresh_width  # to store the results of the sum of non-zero voxels
         memory_used = 1
-        print("Label count", num_labels)
+        reserve = 5 if use_prior else 2
         for im_dim in im_shape:
             memory_used *= im_dim
-        memory_used = 2 * memory_used/(1024**3)  # the 2 is that there will be a low mask image and a high mask image that each will use space
+        memory_used = reserve * memory_used/(1024**3)  # the 2 is that there will be a low mask image and a high mask image that each will use space. 3 is for other overheads
         intens_total_range = img_max - low
         memory_batch = int(mem_max/memory_used)  # the image batch size that is allowed
+        if memory_batch == 0:
+            raise ValueError('The allocated memory is zero. Raise the memory cap or use smaller images')
         iteration_set = []
+        print("Batch size", memory_batch)
+        batch_counter = 0
         for t in range(math.ceil(intens_total_range/memory_batch) + 1):
             iteration_set.append([t*memory_batch, (t+1)*memory_batch - 1])
         iteration_set[-1][1] = img_max
 
-        '''print("Last iter", img_max)
-        print("Batch size", memory_batch)
-        print("Memory batches", iteration_set)'''
-
         def get_low_layers(intens_iter_range):
             low_shape = list(im_shape)
             low_shape.append(len(intens_iter_range))
-            print(low_shape)
-            index_label_offsets = (((np.ones(tuple(low_shape), dtype=numpy.uint8) * intens_iter_range*num_labels).T * mask_low.T) + labels_low.T).T
+            index_label_offsets = (((np.ones(tuple(low_shape), dtype=numpy.uint8) * intens_iter_range*(num_labels + 1)).T) + labels_low.T).T
             return index_label_offsets
 
+        prior = True
+
+        def get_high_mask(threshold_range, use_prior=False, low_set=None):
+            high_shape = list(im_shape)
+            high_shape.append(len(threshold_range))
+            high_set = (np.ones(tuple(high_shape), dtype=numpy.uint8).T * image.T)
+            if use_prior and type(prior) == np.ndarray:
+                prior_set = np.logical_and(np.ones_like(high_set, dtype=numpy.uint8), prior.T).T
+            else:
+                prior_set = True
+            high_mask = np.greater(high_set.T, threshold_range,
+                                   where=low_set > 0 if not use_prior and low_set is not None else prior_set)
+            return high_mask
+        low_label_sets = None
         for mem_iter in iteration_set:
+            print("Batch", batch_counter, "of", len(iteration_set))
             mem_range_size = mem_iter[1] - mem_iter[0] + 1
-            print("Memory batch size", mem_range_size)
-            low_label_sets = get_low_layers(np.arange(mem_range_size))  # of shape z by x by y by k where k is current mem batch size
+            if low_label_sets is not None and type(low_label_sets) == np.ndarray:
+                if low_label_sets.shape[-1] != mem_range_size:
+                    low_label_sets = get_low_layers(np.arange(mem_range_size))
+            else:
+                low_label_sets = get_low_layers(np.arange(mem_range_size))
+
+            high_mask = get_high_mask(np.arange(low + mem_iter[0] + 1, low + mem_iter[1] + 2), use_prior, low_label_sets)
+            if use_prior:
+                prior = high_mask[..., -1]
+            low_label_num = np.arange(np.min(low_label_sets), np.max(low_label_sets) + 1)
+            sums = ndi.sum_labels(high_mask, low_label_sets, low_label_num)
+            sums = sums > 0
+            threshold_results = sums[low_label_sets].astype('uint8')
+
+            sum_index = tuple([si for si in range(len(threshold_results.shape) - 1)])
+            sum_set = threshold_results.sum(axis=sum_index)
+            thresholded[slice(mem_iter[0], mem_iter[0] + 1)] = sum_set
+            batch_counter += 1
             '''
             TO DO:
-            - create mask_high of same shape as low_label_sets 
-            - the provided num_range must be based on the expanded which can be inferred mathematically from the mem_range_size
-            - add catch for if mem_max leads to mem_batch < 1
-            - the memory calculation based on bits is not perfectly accurate as temporary copies and overheads cannot be accounted for
             - refer to book for method and then compare with established for comparison
             '''
 
+        intensities = list(range(low + 1, img_max + 1)) # x-axis intensity range
+        intensities.reverse()
+        thresholded.reverse()
+        return intensities, thresholded
 
     def test_iter_hyst(self):
         image_details = self.file_list[0]

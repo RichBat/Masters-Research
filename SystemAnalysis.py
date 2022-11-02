@@ -1830,16 +1830,25 @@ class thresholding_metrics(AutoThresholder):
             print("Image currently", f[1])
             image = self._grayscale(io.imread(f[0]))
             lw_thrsh = self._low_select(img=image)[0]
-            print(lw_thrsh)
-            self._efficient_hysteresis_iterative_time(image, lw_thrsh)
+            '''start_time1 = time.process_time()
+            intens, thresh = self._efficient_hysteresis_iterative(image, lw_thrsh)
+            end_time1 = time.process_time()
+            plt.plot(intens, thresh)
+            plt.show()'''
+            start_time2 = time.process_time()
+            intens, thresh = self._efficient_hysteresis_iterative_time(image, lw_thrsh, 1.2, False)
+            end_time2 = time.process_time()
+            plt.plot(intens, thresh)
+            plt.show()
+            print("Time taken for old", "for new", end_time2-start_time2)
             # self.generate_ihh_figure(image, lw_thrsh, f[1], save_location=save_location)
 
 
 
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.go_through_image_ihh("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\IHH_graphs_better\\")
+    system_analyst.go_through_image_ihh()
     # system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
     # system_analyst.generate_threshold_graphs()
     # system_analyst.low_threshold_similarity("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\lw_thrsh_metrics.json")
