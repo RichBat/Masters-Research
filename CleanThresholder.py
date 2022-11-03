@@ -640,7 +640,7 @@ class AutoThresholder:
         labels_low, num_labels = ndi.label(mask_low)
         thresholded = [None]*thresh_width  # to store the results of the sum of non-zero voxels
         memory_used = 1
-        reserve = 5 if use_prior else 2
+        reserve = 3 if use_prior else 3
         for im_dim in im_shape:
             memory_used *= im_dim
         memory_used = reserve * memory_used/(1024**3)  # the 2 is that there will be a low mask image and a high mask image that each will use space. 3 is for other overheads
@@ -651,57 +651,57 @@ class AutoThresholder:
         iteration_set = []
         print("Batch size", memory_batch)
         batch_counter = 0
-        for t in range(math.ceil(intens_total_range/memory_batch) + 1):
-            iteration_set.append([t*memory_batch, (t+1)*memory_batch - 1])
+        for t in range(math.ceil(intens_total_range/memory_batch)):
+            iteration_set.append([low + t*memory_batch, low + (t+1)*memory_batch - 1])
         iteration_set[-1][1] = img_max
 
-        def get_low_layers(intens_iter_range):
-            low_shape = list(im_shape)
-            low_shape.append(len(intens_iter_range))
-            index_label_offsets = (((np.ones(tuple(low_shape), dtype=numpy.uint8) * intens_iter_range*(num_labels + 1)).T) + labels_low.T).T
+        base_set_shape = list(im_shape)
+        base_set_shape.append(memory_batch)
+
+        def get_low_layers():
+            index_label_offsets = (((np.ones(tuple(base_set_shape), dtype=numpy.uint8) * np.arange(memory_batch)*(num_labels + 1)).T) + labels_low.T).T
             return index_label_offsets
 
         prior = True
+        image_set = (np.ones(tuple(base_set_shape), dtype=numpy.uint8).T * image.T)
 
         def get_high_mask(threshold_range, use_prior=False, low_set=None):
-            high_shape = list(im_shape)
-            high_shape.append(len(threshold_range))
-            high_set = (np.ones(tuple(high_shape), dtype=numpy.uint8).T * image.T)
-            if use_prior and type(prior) == np.ndarray:
-                prior_set = np.logical_and(np.ones_like(high_set, dtype=numpy.uint8), prior.T).T
+            if use_prior and type(prior) == tuple:
+                high_mask = np.zeros_like(image_set.T[..., slice(0, len(threshold_range))], dtype=np.bool)
+                high_mask[prior] = np.greater(image_set.T[prior][..., slice(0, len(threshold_range))], threshold_range)
             else:
-                prior_set = True
-            high_mask = np.greater(high_set.T, threshold_range,
-                                   where=low_set > 0 if not use_prior and low_set is not None else prior_set)
-            return high_mask
-        low_label_sets = None
-        for mem_iter in iteration_set:
-            print("Batch", batch_counter, "of", len(iteration_set))
-            mem_range_size = mem_iter[1] - mem_iter[0] + 1
-            if low_label_sets is not None and type(low_label_sets) == np.ndarray:
-                if low_label_sets.shape[-1] != mem_range_size:
-                    low_label_sets = get_low_layers(np.arange(mem_range_size))
-            else:
-                low_label_sets = get_low_layers(np.arange(mem_range_size))
+                high_mask = np.greater(image_set[slice(0, len(threshold_range))].T, threshold_range,
+                                       where=True)
 
-            high_mask = get_high_mask(np.arange(low + mem_iter[0] + 1, low + mem_iter[1] + 2), use_prior, low_label_sets)
+            return high_mask
+
+        low_label_sets = get_low_layers()
+        #print("Iterations", iteration_set)
+        for mem_iter in iteration_set:
+            #print("Batch", batch_counter, "of", len(iteration_set))
+            mem_range_size = mem_iter[1] - mem_iter[0] + 1
+            mem_index_range = slice(0, mem_range_size)
+            high_mask = get_high_mask(np.arange(low + mem_iter[0] + 1, low + mem_iter[1] + 2), use_prior, low_label_sets[..., mem_index_range])
+            #print("High mask shape", high_mask.shape)
             if use_prior:
-                prior = high_mask[..., -1]
+                prior = np.nonzero(high_mask[..., -1])
             low_label_num = np.arange(np.min(low_label_sets), np.max(low_label_sets) + 1)
-            sums = ndi.sum_labels(high_mask, low_label_sets, low_label_num)
-            sums = sums > 0
-            threshold_results = sums[low_label_sets].astype('uint8')
+            threshold_results = (ndi.sum_labels(high_mask, low_label_sets[..., mem_index_range], low_label_num) > 0)[low_label_sets[..., mem_index_range]].astype('uint8')
+            # threshold_results = sums[low_label_sets].astype('uint8')
 
             sum_index = tuple([si for si in range(len(threshold_results.shape) - 1)])
-            sum_set = threshold_results.sum(axis=sum_index)
-            thresholded[slice(mem_iter[0], mem_iter[0] + 1)] = sum_set
+            #print("Indexing check")
+            #print(mem_iter[0] - low, mem_iter[1] + 1 - low, len(thresholded[slice(mem_iter[0] - low, mem_iter[1] - low)]), threshold_results.sum(axis=sum_index).shape)
+            #print("Threshold sums", threshold_results.sum(axis=sum_index))
+            thresholded[slice(mem_iter[0] - low, mem_iter[1] + 1 - low)] = threshold_results.sum(axis=sum_index)
+            #print("Stored thresholds", thresholded[slice(mem_iter[0] - low, mem_iter[1] + 1 - low)])
             batch_counter += 1
             '''
             TO DO:
             - refer to book for method and then compare with established for comparison
             '''
 
-        intensities = list(range(low + 1, img_max + 1)) # x-axis intensity range
+        intensities = list(range(low, img_max + 1)) # x-axis intensity range
         intensities.reverse()
         thresholded.reverse()
         return intensities, thresholded

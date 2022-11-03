@@ -1830,23 +1830,29 @@ class thresholding_metrics(AutoThresholder):
             print("Image currently", f[1])
             image = self._grayscale(io.imread(f[0]))
             lw_thrsh = self._low_select(img=image)[0]
-            '''start_time1 = time.process_time()
-            intens, thresh = self._efficient_hysteresis_iterative(image, lw_thrsh)
+            start_time1 = time.process_time()
+            # intens, thresh1 = self._efficient_hysteresis_iterative(image, lw_thrsh)
+            # print("Threshold 1 values", thresh1)
             end_time1 = time.process_time()
-            plt.plot(intens, thresh)
+            '''plt.plot(intens, thresh1)
             plt.show()'''
+            # print(len(thresh1), len(intens))
+            print("Next")
             start_time2 = time.process_time()
-            intens, thresh = self._efficient_hysteresis_iterative_time(image, lw_thrsh, 1.2, False)
+            intens, thresh2 = self._efficient_hysteresis_iterative_time(image, lw_thrsh, 2.2, True)
             end_time2 = time.process_time()
-            plt.plot(intens, thresh)
+            print("Time taken for old", end_time1 - start_time1, "for new", end_time2 - start_time2)
+            plt.plot(intens, thresh2)
             plt.show()
-            print("Time taken for old", "for new", end_time2-start_time2)
+            print("Threshold results")
+            # print(thresh1)
+            print(thresh2)
             # self.generate_ihh_figure(image, lw_thrsh, f[1], save_location=save_location)
 
 
 
 if __name__ == "__main__":
-    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
     system_analyst.go_through_image_ihh()
     # system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
