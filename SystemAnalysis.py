@@ -1789,7 +1789,7 @@ class thresholding_metrics(AutoThresholder):
         plt.show()
 
 
-    def generate_ihh_figure(self, im_path, low_thresh, sample_name = None, save_location = None):
+    def generate_ihh_figures(self, im_path, low_thresh, sample_name = None, save_location = None):
         if type(im_path) is str:
             image = io.imread(im_path)
         else:
@@ -1847,14 +1847,51 @@ class thresholding_metrics(AutoThresholder):
             print("Threshold results")
             # print(thresh1)
             print(thresh2)
-            # self.generate_ihh_figure(image, lw_thrsh, f[1], save_location=save_location)
+            # self.generate_ihh_figures(image, lw_thrsh, f[1], save_location=save_location)
 
-
+    def generate_IHH_plots(self, ihh_sample):
+        '''will generate IHH figures for the high threshold generation but will also store the line plot details in
+        json file for future editing and annotation. Plots needed are the IHH graph, the slope version, the rescaling
+        distribution, the effect of the rescaling distribution (This could all be done with a seaborn jointgrid?).
+        In future the centroid plots and window effects will need to be plotted.'''
+        sample_image = io.imread(self.image_paths[ihh_sample])
+        low_thr, validity = self._low_select(sample_image)
+        intensities, threshold_counts = self._efficient_hysteresis_iterative(sample_image, low_thr)
+        intensities, threshold_counts = intensities[:-1], threshold_counts[:-1]
+        slopes, slope_points = self._get_slope(intensities, threshold_counts)
+        mving_slopes = self._moving_average(slopes, window_size=8)
+        max_slope = math.ceil(max(slopes))
+        inverted_rescaler = np.arange(max_slope, 0, -1)/max_slope
+        print(inverted_rescaler.shape, len(mving_slopes))
+        logist = self._generate_sigmoid(max_slope / 2, k=6)
+        print(logist)
+        logist_rescaled = np.array([logist[int(lgr)] for lgr in mving_slopes])
+        logist = np.array(logist)
+        print(logist.shape, logist_rescaled.shape, max_slope)
+        reweighted_dist = self._apply_weights(logist_rescaled, mving_slopes)
+        print("Reweighted length", len(reweighted_dist))
+        '''sns.lineplot(x=np.arange(len(logist)), y=logist)
+        plt.show()
+        sns.lineplot(x=np.arange(len(inverted_rescaler)), y=inverted_rescaler)
+        plt.show()'''
+        print(len(slope_points), len(reweighted_dist), len(inverted_rescaler), len(mving_slopes))
+        new_resolution = math.ceil(len(logist)/len(reweighted_dist))
+        print(new_resolution)
+        new_range = [logist[int(lgr * new_resolution)] for lgr in range(len(reweighted_dist))]
+        print(len(new_range))
+        print(max(logist_rescaled))
+        g = sns.JointGrid()
+        x = slope_points
+        sns.lineplot(x=x, y=(np.array(mving_slopes)/max(mving_slopes))*225, ax=g.ax_joint)
+        sns.lineplot(x=x, y=logist_rescaled/logist_rescaled.max(), ax=g.ax_marg_x)
+        sns.lineplot(x=new_range, y=np.arange(0, len(new_range), step=1), ax=g.ax_marg_y)
+        plt.show()
 
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.go_through_image_ihh()
+    system_analyst.generate_IHH_plots("CCCP_1C=1T=0.tif")
+    # system_analyst.go_through_image_ihh()
     # system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
     # system_analyst.generate_threshold_graphs()
     # system_analyst.low_threshold_similarity("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\Low Threshold Metrics\\lw_thrsh_metrics.json")
