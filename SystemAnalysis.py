@@ -1856,12 +1856,13 @@ class thresholding_metrics(AutoThresholder):
         In future the centroid plots and window effects will need to be plotted.'''
         sample_image = io.imread(self.image_paths[ihh_sample])
         low_thr, validity = self._low_select(sample_image)
-        intensities, threshold_counts = self._efficient_hysteresis_iterative(sample_image, low_thr)
+        intensities, threshold_counts, indep_count = self._efficient_hysteresis_iterative(sample_image, low_thr, True)
+        print("Ind structure count", indep_count)
         intensities, threshold_counts = intensities[:-1], threshold_counts[:-1]
         slopes, slope_points = self._get_slope(intensities, threshold_counts)
         mving_slopes = self._moving_average(slopes, window_size=8)
         max_slope = math.ceil(max(slopes))
-        inverted_rescaler = np.arange(max_slope, 0, -1)/max_slope
+        '''inverted_rescaler = np.arange(max_slope, 0, -1)/max_slope
         print(inverted_rescaler.shape, len(mving_slopes))
         logist = self._generate_sigmoid(max_slope / 2, k=6)
         print(logist)
@@ -1869,12 +1870,12 @@ class thresholding_metrics(AutoThresholder):
         logist = np.array(logist)
         print(logist.shape, logist_rescaled.shape, max_slope)
         reweighted_dist = self._apply_weights(logist_rescaled, mving_slopes)
-        print("Reweighted length", len(reweighted_dist))
+        print("Reweighted length", len(reweighted_dist))'''
         '''sns.lineplot(x=np.arange(len(logist)), y=logist)
         plt.show()
         sns.lineplot(x=np.arange(len(inverted_rescaler)), y=inverted_rescaler)
         plt.show()'''
-        print(len(slope_points), len(reweighted_dist), len(inverted_rescaler), len(mving_slopes))
+        '''print(len(slope_points), len(reweighted_dist), len(inverted_rescaler), len(mving_slopes))
         new_resolution = math.ceil(len(logist)/len(reweighted_dist))
         print(new_resolution)
         new_range = [logist[int(lgr * new_resolution)] for lgr in range(len(reweighted_dist))]
@@ -1885,12 +1886,85 @@ class thresholding_metrics(AutoThresholder):
         sns.lineplot(x=x, y=(np.array(mving_slopes)/max(mving_slopes))*225, ax=g.ax_joint)
         sns.lineplot(x=x, y=logist_rescaled/logist_rescaled.max(), ax=g.ax_marg_x)
         sns.lineplot(x=new_range, y=np.arange(0, len(new_range), step=1), ax=g.ax_marg_y)
+        plt.show()'''
+        voxel_arr = np.array(threshold_counts)
+        high_thresh0 = self._logistic_thresholding(mving_slopes, np.power(voxel_arr, 1), steepness=50, weighted_option=0) + low_thr
+        print("High thresh ver 0", high_thresh0)
+        high_thresh1 = self._logistic_thresholding(mving_slopes, np.power(voxel_arr, 1), steepness=50, weighted_option=1) + low_thr
+        print("High thresh ver 1", high_thresh1)
+        high_thresh2 = self._logistic_thresholding(mving_slopes, np.power(voxel_arr, 1), steepness=50, weighted_option=2) + low_thr
+        print("High thresh ver 2", high_thresh2)
+        sns.lineplot(x=intensities, y=threshold_counts)
+        plt.axvline(x=high_thresh0, c='r')
+        plt.axvline(x=high_thresh1, c='g')
+        plt.axvline(x=high_thresh2, c='b')
         plt.show()
+        high_thresh_test = self._logistic_thresholding(mving_slopes, threshold_counts, steepness=50, weighted_option=3)
+        print("Efficient test", high_thresh_test)
+
+    def extract_information_samples(self):
+        thresholding_information = {}
+        structure_count_info = {}
+        save_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\"
+        sample_len = len(self.file_list)
+        sample_counter = 1
+        for f in self.file_list:
+            print("Sample", str(sample_counter), " of", str(sample_len))
+            sample_counter += 1
+            image = io.imread(f[0])
+            file_name = f[1]
+            print("Sample", file_name)
+            thresholding_information[file_name] = {}
+            low_thr, validity = self._low_select(image)
+            thresholding_information[file_name]["low_thr"] = str(low_thr)
+            intensities, threshold_counts = self._efficient_hysteresis_iterative(image, low_thr, False)
+            intensities, threshold_counts = intensities[:-1], threshold_counts[:-1]
+            slopes, slope_points = self._get_slope(intensities, threshold_counts)
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            # structure_count_info[file_name] = indep_count
+            '''with open(save_path + "struct_count_ihh.json", 'w') as j:
+                json.dump(structure_count_info, j)'''
+            # thresholding_information[file_name]["Indep Count"] = indep_count
+            voxel_arr = np.array(threshold_counts)
+            for p in [1, 0.5, 0.3]:
+                high_thresh_11 = str(self._logistic_thresholding(mving_slopes, np.power(voxel_arr, p), steepness=6, weighted_option=0) + low_thr)
+                high_thresh_12 = str(self._logistic_thresholding(mving_slopes, np.power(voxel_arr, p), steepness=6, weighted_option=1) + low_thr)
+                high_thresh_13 = str(self._logistic_thresholding(mving_slopes, np.power(voxel_arr, p), steepness=6, weighted_option=2) + low_thr)
+                high_thresh_21 = str(self._logistic_thresholding(mving_slopes, np.power(voxel_arr, p), steepness=50, weighted_option=0) + low_thr)
+                high_thresh_22 = str(self._logistic_thresholding(mving_slopes, np.power(voxel_arr, p), steepness=50, weighted_option=1) + low_thr)
+                high_thresh_23 = str(self._logistic_thresholding(mving_slopes, np.power(voxel_arr, p), steepness=50, weighted_option=2) + low_thr)
+                thresholding_information[file_name]["Voxel pow" + str(p)] = [[high_thresh_11, high_thresh_12, high_thresh_13],
+                                                                             [high_thresh_21, high_thresh_22, high_thresh_23]]
+                with open(save_path + "power_high_thresh.json", 'w') as j:
+                    json.dump(thresholding_information, j)
+
+    def visualise_struct_counts(self):
+        json_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\struct_count_ihh.json"
+        struct_count_values = None
+        with open(json_path, "r") as j:
+            struct_count_values = json.load(j)
+        for sample, values in struct_count_values.items():
+            values.reverse()
+            slopes, slope_points = self._get_slope(x=list(range(len(values))), y=values)
+            print(slopes)
+            mving_slopes = self._moving_average(slopes, window_size=3)
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+            norm_val = np.array(values) / max(values)
+            norm_slopes = np.array(slopes) / max(slopes)
+            norm_mving = np.array(mving_slopes) / max(mving_slopes)
+            sns.lineplot(x=np.arange(len(values)), y=norm_val, ax=ax1)
+            sns.lineplot(x=slope_points, y=norm_slopes, ax=ax2)
+            sns.lineplot(x=slope_points, y=norm_mving, ax=ax3)
+            fig.suptitle(sample)
+            plt.show()
+
 
 if __name__ == "__main__":
-    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.generate_IHH_plots("CCCP_1C=1T=0.tif")
+    system_analyst.visualise_struct_counts()
+    # system_analyst.extract_information_samples()
+    # system_analyst.generate_IHH_plots("CCCP_1C=1T=0.tif")
     # system_analyst.go_through_image_ihh()
     # system_analyst.generate_ihh_figure(input_path[0] + "CCCP_1C=1T=0.tif", 26)
     # system_analyst.generate_threshold_graphs()
