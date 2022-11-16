@@ -1959,10 +1959,37 @@ class thresholding_metrics(AutoThresholder):
             plt.show()
 
 
+    def get_spatial_metrics_more(self):
+        structure_count_info = {}
+        save_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\"
+        sample_len = len(self.file_list)
+        sample_counter = 1
+        for f in self.file_list:
+            print("Sample", str(sample_counter), " of", str(sample_len))
+            sample_counter += 1
+            image = io.imread(f[0])
+            file_name = f[1]
+            print("Sample", file_name)
+            structure_count_info[file_name] = {}
+            low_thr, validity = self._low_select(image)
+            structure_count_info[file_name]["low_thr"] = str(low_thr)
+            intensities, threshold_counts, structure_sizes = self._efficient_hysteresis_iterative(image, low_thr, False, True)
+            intensities, threshold_counts = intensities[:-1], threshold_counts[:-1]
+            slopes, slope_points = self._get_slope(intensities, threshold_counts)
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            print(type(structure_sizes), type(threshold_counts[0]), type(mving_slopes[0]))
+            structure_count_info[file_name]["Structures Lost"] = structure_sizes
+            structure_count_info[file_name]["ihh"] = threshold_counts
+            structure_count_info[file_name]["slopes"] = mving_slopes
+            with open(save_path + "spatio_struct_info.json", 'w') as j:
+                json.dump(structure_count_info, j)
+            print("Stored")
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.visualise_struct_counts()
+    system_analyst.get_spatial_metrics_more()
+    # system_analyst.visualise_struct_counts()
     # system_analyst.extract_information_samples()
     # system_analyst.generate_IHH_plots("CCCP_1C=1T=0.tif")
     # system_analyst.go_through_image_ihh()

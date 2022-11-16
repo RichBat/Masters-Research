@@ -281,7 +281,7 @@ class AutoThresholder:
         normal_knee = self._testing_knee(img, log_hist=False, sensitivity=0.2)
         log_knee = self._testing_knee(img, log_hist=True, sensitivity=0.2)
         otsu_thresh = threshold_otsu(img)
-        print("Normal Knee:", normal_knee, "Log Knee:", log_knee, "Otsu Thresh:", otsu_thresh)
+        # print("Normal Knee:", normal_knee, "Log Knee:", log_knee, "Otsu Thresh:", otsu_thresh)
         valid = True
         if otsu_thresh <= normal_knee:
             chosen_knee = normal_knee
@@ -661,7 +661,7 @@ class AutoThresholder:
             distance += math.pow((voxel_values1[i] - voxel_values2[i]), 2)
         return math.sqrt(distance)
 
-    def _efficient_hysteresis_iterative(self, image, low, record_ind_str_counter=False):
+    def _efficient_hysteresis_iterative(self, image, low, record_ind_str_counter=False, struct_size_info=False):
         """
         In this method the image and low thresholds are supplied to generate the mask_low labels for all elements greater than the low threshold.
         The high threshold is a maximum value and there will be iteration from the low value to the high value to produce a range of mask_high arrays.
@@ -684,6 +684,10 @@ class AutoThresholder:
         if record_ind_str_counter:
             ind_count = [None]*thresh_width
 
+        if struct_size_info:
+            new_struct_sizes = [None]*thresh_width
+            prior_structs = None
+
         def _check_greater(iterate, prior=True):
             mask_high = np.greater(image, intensities[iterate], where=prior)
             sums = ndi.sum_labels(mask_high, labels_low, num_range)
@@ -691,16 +695,38 @@ class AutoThresholder:
             threshold = connected_to_high[labels_low]
             if record_ind_str_counter:
                 label_arr, ind_count[iterate] = ndi.label(threshold.astype(bool))
-
-            return threshold.astype('uint8').sum(), mask_high
+            if struct_size_info:
+                nonlocal prior_structs
+                if iterate == 0:
+                    prior_structs = np.copy(threshold.astype(bool))
+                else:
+                    lost_structures = np.logical_xor(threshold.astype(bool), prior_structs)
+                    '''rgb_vis = np.stack([lost_structures.astype('uint8'), np.zeros_like(lost_structures), threshold.astype('uint8')], axis=-1)
+                    io.imshow(np.amax(rgb_vis, axis=0)*255)
+                    plt.show()'''
+                    prior_structs = np.copy(threshold.astype(bool))
+                    label_new, _unneeded_count = ndi.label(lost_structures)
+                    label_names, struct_sizes = np.unique(label_new, return_counts=True)
+                    new_struct_sizes[iterate - 1] = struct_sizes[1:].tolist() if len(struct_sizes) > 1 else []
+                    if iterate == len(intensities) - 1:
+                        label_new, _unneeded_count = ndi.label(threshold.astype(bool))
+                        label_names, struct_sizes = np.unique(label_new, return_counts=True)
+                        new_struct_sizes[iterate] = struct_sizes[1:].tolist() if len(struct_sizes) > 1 else []
+            return int(threshold.astype('uint8').sum()), mask_high
 
         for i in range(len(intensities)):
             i_sum, mask_prior = _check_greater(i, mask_prior)
             thresholded[i] = i_sum
         thresholded.reverse()
         intensities.reverse()
-        if record_ind_str_counter:
+
+        if record_ind_str_counter and not struct_size_info:
             return intensities, thresholded, ind_count
+        if struct_size_info and not record_ind_str_counter:
+            return intensities, thresholded, new_struct_sizes
+        if struct_size_info and record_ind_str_counter:
+            return intensities, thresholded, ind_count, new_struct_sizes
+
         return intensities, thresholded
 
 
