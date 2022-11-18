@@ -1985,10 +1985,87 @@ class thresholding_metrics(AutoThresholder):
                 json.dump(structure_count_info, j)
             print("Stored")
 
+    def visualise_spatial_info(self):
+        spatial_info_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\spatio_struct_info.json"
+        with open(spatial_info_path, "r") as j:
+            spatial_info = json.load(j)
+        for sample, values in spatial_info.items():
+            print(sample)
+            low_thrsh = values["low_thr"]
+            ihh_data = values["ihh"]
+            slope_data = values["slopes"]
+            struct_info = values["Structures Lost"]
+            structures_present = []
+            current_total_mean = []
+            current_structures = None
+            prior_structures = None
+            struct_size_change = []
+            struct_size_past = None
+            struct_size_gradient = []
+            struct_size_gradient_prior = None
+            struct_count = []
+            added_struct_count = []
+            average_struct_size_present = []
+            for g in range(len(struct_info) - 1, 0, -1):
+                # print(current_structures, prior_structures, len(struct_info[g]))
+                if current_structures is None and len(struct_info[g]) > 0:
+                    current_structures = np.array(struct_info[g])
+                    prior_structures = np.array(struct_info[g])
+                    struct_size_past = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                    struct_size_gradient_prior = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                    struct_size_change.append(struct_size_past)
+                    struct_size_gradient.append(struct_size_gradient_prior)
+                elif len(struct_info[g]) == 0 and struct_size_past is not None:
+                    struct_size_change.append(struct_size_past)
+                    struct_size_gradient.append(struct_size_gradient_prior)
+                elif current_structures is not None and prior_structures is not None and struct_size_past is not None and len(struct_info[g]) > 0:
+                    current_structures = np.array(struct_info[g])
+                    struct_size_past = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean()) + struct_size_past
+                    struct_size_change.append(struct_size_past)
+                    struct_size_gradient_prior = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                    struct_size_gradient.append(struct_size_gradient_prior)
+                    prior_structures = np.array(struct_info[g])
+                else:
+                    pass
+                if current_structures is not None:
+                    structures_present += struct_info[g]
+                    struct_count.append(len(structures_present))
+                    added_struct_count.append(len(struct_info[g]))
+                    current_total_mean.append(np.array(structures_present).mean())
+                    struct_sze = np.array(struct_info[g]).mean() if len(struct_info[g]) > 0 else 0
+                    average_struct_size_present.append(struct_sze)
+            struct_size_change.reverse()
+            struct_size_gradient.reverse()
+            current_total_mean.reverse()
+            added_struct_count.reverse()
+            struct_count.reverse()
+            average_struct_size_present.reverse()
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+            sns.lineplot(y=struct_size_change, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=ax1)
+            ax1.set_title("Cumulative change in mean struct size descending")
+            ax1.axhline(y=np.array(struct_size_change).mean(), c='r')
+            sns.lineplot(y=struct_size_gradient, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_gradient)), ax=ax2)
+            ax2.set_title("Relative change in average struct size between intensities descending")
+            ax2.axhline(y=0, c='k')
+            ax2.axhline(y=np.array(struct_size_gradient).mean(), c='r')
+            sns.lineplot(y=current_total_mean, x=np.arange(int(low_thrsh), int(low_thrsh) + len(current_total_mean)), ax=ax3)
+            ax3.set_title("Mean structure size of all structures currently present")
+
+            fig2, (ax4, ax5, ax6) = plt.subplots(3, 1)
+            sns.lineplot(y=average_struct_size_present, x=np.arange(int(low_thrsh), int(low_thrsh) + len(average_struct_size_present)), ax=ax4)
+            ax4.set_title("Average Structure size of newly added structures")
+            sns.lineplot(y=struct_count, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_count)), ax=ax5)
+            ax5.set_title("Total number of independent structures")
+            sns.lineplot(y=added_struct_count, x=np.arange(int(low_thrsh), int(low_thrsh) + len(added_struct_count)), ax=ax6)
+            ax6.set_title("Independent structures added at this intensity")
+            plt.show()
+
+
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.get_spatial_metrics_more()
+    system_analyst.visualise_spatial_info()
+    # system_analyst.get_spatial_metrics_more()
     # system_analyst.visualise_struct_counts()
     # system_analyst.extract_information_samples()
     # system_analyst.generate_IHH_plots("CCCP_1C=1T=0.tif")
