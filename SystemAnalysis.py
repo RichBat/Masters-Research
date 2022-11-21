@@ -1993,6 +1993,8 @@ class thresholding_metrics(AutoThresholder):
             print(sample)
             low_thrsh = values["low_thr"]
             ihh_data = values["ihh"]
+            ihh_data.reverse()
+            norm_ihh = (np.array(ihh_data)/max(ihh_data))[:-1]
             slope_data = values["slopes"]
             struct_info = values["Structures Lost"]
             structures_present = []
@@ -2006,6 +2008,7 @@ class thresholding_metrics(AutoThresholder):
             struct_count = []
             added_struct_count = []
             average_struct_size_present = []
+            voxels_added = []
             for g in range(len(struct_info) - 1, 0, -1):
                 # print(current_structures, prior_structures, len(struct_info[g]))
                 if current_structures is None and len(struct_info[g]) > 0:
@@ -2034,36 +2037,275 @@ class thresholding_metrics(AutoThresholder):
                     current_total_mean.append(np.array(structures_present).mean())
                     struct_sze = np.array(struct_info[g]).mean() if len(struct_info[g]) > 0 else 0
                     average_struct_size_present.append(struct_sze)
+                    voxels_added.append(sum(struct_info[g]))
             struct_size_change.reverse()
             struct_size_gradient.reverse()
             current_total_mean.reverse()
             added_struct_count.reverse()
             struct_count.reverse()
             average_struct_size_present.reverse()
+            voxels_added.reverse()
+            cum_change_mean = np.array(struct_size_change).mean()
+            # leftmost_intersect_intensity = np.array(np.where(abs(struct_size_change-cum_change_mean) == np.amin(abs(struct_size_change-cum_change_mean))))
+            leftmost_intersect_intensity = []
+            for t in range(1, len(struct_size_change)): #need to interpolate to determine actual intersections. go from left to right
+                if struct_size_change[t - 1] < cum_change_mean < struct_size_change[t]:
+                    if abs(struct_size_change[t - 1] - cum_change_mean) < abs(struct_size_change[t] - cum_change_mean):
+                        leftmost_intersect_intensity.append(t - 1)
+                    else:
+                        leftmost_intersect_intensity.append(t)
+                else:
+                    if cum_change_mean == struct_size_change[t - 1]:
+                        leftmost_intersect_intensity.append(t - 1)
+                    if cum_change_mean == struct_size_change[t]:
+                        leftmost_intersect_intensity.append(t)
+            leftmost_intersect_intensity = min(leftmost_intersect_intensity)
+            print(len(struct_size_change), len(struct_size_gradient))
+            left_peak_change = np.where(struct_size_gradient[0:leftmost_intersect_intensity+1]==np.amin(struct_size_gradient[0:leftmost_intersect_intensity+1]))
+            left_peak_change = int(min(left_peak_change)[0])
+            print("Intersection point", left_peak_change + int(low_thrsh))
+
+            def density_calc(input_values):
+                max_dist = len(input_values) - 1
+                k = 0.1
+                input_array = np.array(input_values)
+                index_range = np.arange(len(input_values))
+                density_weights = np.zeros(tuple([len(input_values), len(input_values)]))
+                for r in range(len(input_values)):
+                    distances = np.abs(index_range - r)
+                    # offset = (len(input_values) - r)/len(input_values)
+                    density_weights[r] = np.exp(-1 * k * distances)
+                    # density_weights[r][:r] = 1 / (1 + np.exp(-1 * k * ((max_dist - distances[:r]) + max_dist * offset)))
+                density_weighted_values = density_weights * input_array
+                density_totals = np.sum(density_weighted_values, axis=1)
+                '''figalphs, (ax_aleph, ax_elaph, ax_sigrun) = plt.subplots(3, 1)
+                sns.lineplot(y=input_array, x=index_range, ax=ax_aleph)
+                sns.lineplot(y=density_weighted_values[0], x=index_range, ax=ax_elaph)
+                sns.lineplot(y=density_weights[101], x=index_range, ax=ax_sigrun)'''
+                return density_totals
+
+            def triangle_centroid_test():
+                triangle_range = np.arange(15, -1, -1)
+                linear_range = np.arange(16)
+                print(triangle_range)
+                centroid = np.trapz(y=triangle_range * linear_range) / np.trapz(triangle_range)
+                sns.lineplot(y=triangle_range, x=linear_range)
+                plt.axvline(x=centroid)
+                plt.show()
+            # triangle_centroid_test()
+
+            def flip_struct_count(count_to_flip, flip=True):
+                count_array = np.array(count_to_flip)
+                if flip:
+                    count_array = np.absolute(count_array - count_array.max())
+                return count_array/count_array.max()
+
+            def apply_flip_to_ihh():
+                graph_array = np.array(struct_size_change)
+                difference_array = np.zeros_like(graph_array)
+                difference_array[left_peak_change:] = np.absolute(graph_array[left_peak_change:] - graph_array[left_peak_change])
+                graph_array = graph_array - 2 * difference_array
+                norm_graph = graph_array - np.amin(graph_array)
+                norm_graph = norm_graph / norm_graph.max()
+                adjusted_ihh = norm_ihh * norm_graph
+                adjusted_ihh /= adjusted_ihh.max()
+                reweighted_norm_graph = norm_graph * flip_struct_count(current_total_mean, False) * norm_ihh
+                reweighted_norm_graph /= reweighted_norm_graph.max()
+                fig_ihh, (ax_one, ax_two, ax_three, ax_four) = plt.subplots(4, 1)
+                sns.lineplot(y=norm_ihh, x=np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_ihh)), ax=ax_one)
+                sns.lineplot(y=np.power(norm_ihh, 0.5), x=np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_ihh)), ax=ax_two)
+                sns.lineplot(y=adjusted_ihh, x=np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_ihh)), ax=ax_three)
+                sns.lineplot(y=reweighted_norm_graph, x=np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_ihh)), ax=ax_four)
+
+            apply_flip_to_ihh()
+
+            def flip_grads_around_intersect():
+                graph_array = np.array(struct_size_change)
+                difference_array = np.zeros_like(graph_array)
+                difference_array[left_peak_change:] = np.absolute(graph_array[left_peak_change:] - graph_array[left_peak_change])
+                graph_array = graph_array - 2 * difference_array
+                norm_graph = graph_array - np.amin(graph_array)
+                norm_graph = norm_graph / norm_graph.max()
+                # density_calc(norm_graph)
+                norm_range = np.arange(len(struct_size_change))/(len(struct_size_change) - 1)
+                scaled_range = (np.arange(len(struct_size_change)) * norm_graph)
+                centr1 = (scaled_range * norm_range).sum()/scaled_range.sum() * (len(struct_size_change) - 1)
+                centr2 = ((scaled_range * flip_struct_count(current_total_mean, False)) * norm_range).sum()/(scaled_range * flip_struct_count(current_total_mean, False)).sum() * (len(struct_size_change) - 1)
+                test_centr_1 = np.trapz(y=scaled_range * norm_range)/np.trapz(scaled_range)
+                test_centr_2 = np.trapz(y=scaled_range * flip_struct_count(current_total_mean, False) * norm_range) / np.trapz(scaled_range * flip_struct_count(current_total_mean, False))
+                print(centr1, centr2)
+                print("Centroid by integral", test_centr_1 * (len(struct_size_change) - 1), test_centr_2 * (len(struct_size_change) - 1))
+                figtemp, (axa, axb, axc) = plt.subplots(3, 1)
+                sns.lineplot(y=struct_size_change, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=axa)
+                sns.lineplot(y=norm_graph, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=axb)
+                axa.axvline(x=left_peak_change + int(low_thrsh), c='g')
+                axb.axvline(x=left_peak_change + int(low_thrsh), c='g')
+                axb.axvline(x=centr1 + int(low_thrsh), c='k')
+                axb.axvline(x=centr2 + int(low_thrsh), c='r')
+                reweighted_norm_graph = norm_graph * flip_struct_count(current_total_mean, False)
+                sns.lineplot(y=reweighted_norm_graph/reweighted_norm_graph.max(), x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=axc)
+                axc.axvline(x=centr2 + int(low_thrsh), c='r')
+
+            flip_grads_around_intersect()
             fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
             sns.lineplot(y=struct_size_change, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=ax1)
             ax1.set_title("Cumulative change in mean struct size descending")
-            ax1.axhline(y=np.array(struct_size_change).mean(), c='r')
+            ax1.axhline(y=cum_change_mean, c='r')
+            ax1.axvline(x=left_peak_change+int(low_thrsh), c='g')
             sns.lineplot(y=struct_size_gradient, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_gradient)), ax=ax2)
             ax2.set_title("Relative change in average struct size between intensities descending")
-            ax2.axhline(y=0, c='k')
             ax2.axhline(y=np.array(struct_size_gradient).mean(), c='r')
+            ax2.axvline(x=left_peak_change + int(low_thrsh), c='g')
             sns.lineplot(y=current_total_mean, x=np.arange(int(low_thrsh), int(low_thrsh) + len(current_total_mean)), ax=ax3)
             ax3.set_title("Mean structure size of all structures currently present")
 
             fig2, (ax4, ax5, ax6) = plt.subplots(3, 1)
             sns.lineplot(y=average_struct_size_present, x=np.arange(int(low_thrsh), int(low_thrsh) + len(average_struct_size_present)), ax=ax4)
             ax4.set_title("Average Structure size of newly added structures")
-            sns.lineplot(y=struct_count, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_count)), ax=ax5)
+            sns.lineplot(y=voxels_added, x=np.arange(int(low_thrsh), int(low_thrsh) + len(voxels_added)), ax=ax5)
             ax5.set_title("Total number of independent structures")
-            sns.lineplot(y=added_struct_count, x=np.arange(int(low_thrsh), int(low_thrsh) + len(added_struct_count)), ax=ax6)
-            ax6.set_title("Independent structures added at this intensity")
+            sns.lineplot(y=density_calc(voxels_added), x=np.arange(int(low_thrsh), int(low_thrsh) + len(voxels_added)), ax=ax6)
+            ax6.set_title("Total voxels by average size")
             plt.show()
 
+
+    def recalc_thresh_with_vox_weight_new(self):
+        spatial_info_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\spatio_struct_info.json"
+        with open(spatial_info_path, "r") as j:
+            spatial_info = json.load(j)
+        for sample, values in spatial_info.items():
+            print(sample)
+            low_thrsh = int(values["low_thr"])
+            ihh_data = values["ihh"]
+            ihh_data.reverse()
+            norm_ihh = (np.array(ihh_data) / max(ihh_data))[:-1]
+            slope_data = values["slopes"]
+            slope_data.reverse()
+            struct_info = values["Structures Lost"]
+
+            structures_present = []
+            current_total_mean = []
+            current_structures = None
+            prior_structures = None
+            struct_size_change = []
+            struct_size_past = None
+            struct_size_gradient = []
+            struct_size_gradient_prior = None
+            struct_count = []
+            added_struct_count = []
+            average_struct_size_present = []
+            for g in range(len(struct_info) - 1, 0, -1):
+                if current_structures is None and len(struct_info[g]) > 0:
+                    current_structures = np.array(struct_info[g])
+                    prior_structures = np.array(struct_info[g])
+                    struct_size_past = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                    struct_size_gradient_prior = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                    struct_size_change.append(struct_size_past)
+                    struct_size_gradient.append(struct_size_gradient_prior)
+                elif len(struct_info[g]) == 0 and struct_size_past is not None:
+                    struct_size_change.append(struct_size_past)
+                    struct_size_gradient.append(struct_size_gradient_prior)
+                elif current_structures is not None and prior_structures is not None and struct_size_past is not None and len(struct_info[g]) > 0:
+                    current_structures = np.array(struct_info[g])
+                    struct_size_past = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean()) + struct_size_past
+                    struct_size_change.append(struct_size_past)
+                    struct_size_gradient_prior = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                    struct_size_gradient.append(struct_size_gradient_prior)
+                    prior_structures = np.array(struct_info[g])
+                else:
+                    pass
+                if current_structures is not None:
+                    structures_present += struct_info[g]
+                    struct_count.append(len(structures_present))
+                    added_struct_count.append(len(struct_info[g]))
+                    current_total_mean.append(np.array(structures_present).mean())
+                    struct_sze = np.array(struct_info[g]).mean() if len(struct_info[g]) > 0 else 0
+                    average_struct_size_present.append(struct_sze)
+
+            struct_size_change.reverse()
+            struct_size_gradient.reverse()
+            current_total_mean.reverse()
+            added_struct_count.reverse()
+            struct_count.reverse()
+            average_struct_size_present.reverse()
+            cum_change_mean = np.array(struct_size_change).mean()
+            leftmost_intersect_intensity = []
+            for t in range(1, len(struct_size_change)):
+                if struct_size_change[t - 1] < cum_change_mean < struct_size_change[t]:
+                    if abs(struct_size_change[t - 1] - cum_change_mean) < abs(struct_size_change[t] - cum_change_mean):
+                        leftmost_intersect_intensity.append(t - 1)
+                    else:
+                        leftmost_intersect_intensity.append(t)
+                else:
+                    if cum_change_mean == struct_size_change[t - 1]:
+                        leftmost_intersect_intensity.append(t - 1)
+                    if cum_change_mean == struct_size_change[t]:
+                        leftmost_intersect_intensity.append(t)
+            leftmost_intersect_intensity = min(leftmost_intersect_intensity)
+            left_peak_change = np.where(
+                struct_size_gradient[0:leftmost_intersect_intensity + 1] == np.amin(struct_size_gradient[0:leftmost_intersect_intensity + 1]))
+            left_peak_change = int(min(left_peak_change)[0])
+            print("Point of flipping", left_peak_change + low_thrsh)
+            def flip_struct_count(count_to_flip, flip=True):
+                count_array = np.array(count_to_flip)
+                if flip:
+                    count_array = np.absolute(count_array - count_array.max())
+                return count_array/count_array.max()
+
+            def apply_flip_to_ihh():
+                graph_array = np.array(struct_size_change)
+                difference_array = np.zeros_like(graph_array)
+                difference_array[left_peak_change:] = np.absolute(graph_array[left_peak_change:] - graph_array[left_peak_change])
+                graph_array = graph_array - 2 * difference_array
+                norm_graph = graph_array - np.amin(graph_array)
+                norm_graph = norm_graph / norm_graph.max()
+                adjusted_ihh = norm_ihh * norm_graph
+                adjusted_ihh /= adjusted_ihh.max()
+                reweighted_norm_graph = norm_graph * flip_struct_count(current_total_mean, False) * norm_ihh
+                reweighted_norm_graph /= reweighted_norm_graph.max()
+                return [norm_ihh, adjusted_ihh, reweighted_norm_graph]
+
+            voxel_weights = apply_flip_to_ihh()
+
+            counter = 0
+            for voxel_arr in voxel_weights:
+                if counter == 0:
+                    print("There is no adjustment")
+                    counter = 1
+                elif counter == 1:
+                    print("This is for the normal adjusted")
+                    counter = 2
+                else:
+                    counter = 0
+                    print("This is for the extra adjusted")
+                high_thresh1 = self._logistic_thresholding(slope_data, voxel_arr, steepness=6, weighted_option=0) + low_thrsh
+                high_thresh2 = self._logistic_thresholding(slope_data, voxel_arr, steepness=6, weighted_option=1) + low_thrsh
+                high_thresh3 = self._logistic_thresholding(slope_data, voxel_arr, steepness=6, weighted_option=2) + low_thrsh
+
+                print("Option 1", high_thresh1, "Option 2", high_thresh2, "Option 3", high_thresh3)
+                print("Slope of 50")
+                high_thresh1 = self._logistic_thresholding(slope_data, voxel_arr, steepness=50, weighted_option=0) + low_thrsh
+                high_thresh2 = self._logistic_thresholding(slope_data, voxel_arr, steepness=50, weighted_option=1) + low_thrsh
+                high_thresh3 = self._logistic_thresholding(slope_data, voxel_arr, steepness=50, weighted_option=2) + low_thrsh
+
+                print("Option 1", high_thresh1, "Option 2", high_thresh2, "Option 3", high_thresh3)
+                print("Average centroid", (high_thresh1 + high_thresh2 + high_thresh3)/3)
+                print("Final composite", (high_thresh1 + high_thresh3 + left_peak_change + low_thrsh)/3)
+                print("Compounded average", ((high_thresh1 + high_thresh3)/2 + left_peak_change + low_thrsh)/2)
+                sns.lineplot(y=voxel_arr, x=np.arange(low_thrsh, len(voxel_arr) + low_thrsh))
+                plt.axvline(x=left_peak_change+low_thrsh, c='k')
+                plt.axvline(x=high_thresh1, c='r')
+                plt.axvline(x=high_thresh2, c='g')
+                plt.axvline(x=high_thresh3, c='b')
+                plt.axvline(x=(high_thresh1 + high_thresh2 + high_thresh3)/3, c='y')
+                plt.show()
+
+            print("")
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
+    # system_analyst.recalc_thresh_with_vox_weight_new()
     system_analyst.visualise_spatial_info()
     # system_analyst.get_spatial_metrics_more()
     # system_analyst.visualise_struct_counts()

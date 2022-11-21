@@ -352,7 +352,7 @@ class AutoThresholder:
 
     def _logistic_thresholding(self, slopes, voxels, steepness, weighted_option=0):
         vox_max = max(voxels)
-        vox_weight = [vw / vox_max for vw in voxels[:-1]]
+        vox_weight = [vw / vox_max for vw in voxels]
         max_slope = math.ceil(max(slopes))
         logist = self._generate_sigmoid(max_slope / 2, steepness)
         logist_rescaled = [logist[int(lgr)] for lgr in slopes]
@@ -447,8 +447,8 @@ class AutoThresholder:
         :param weight_option:
         :return:
         """
-        values.reverse()
-        voxel_weights.reverse()
+        # values.reverse()
+        # voxel_weights.reverse()
         biased_centroid = 0
         window_width_weight = 0
         #print("Values", values)
@@ -719,7 +719,11 @@ class AutoThresholder:
             thresholded[i] = i_sum
         thresholded.reverse()
         intensities.reverse()
-
+        print("Checking reversal")
+        print(thresholded)
+        print(intensities)
+        sns.lineplot(y=thresholded, x=np.arange(intensities))
+        plt.show()
         if record_ind_str_counter and not struct_size_info:
             return intensities, thresholded, ind_count
         if struct_size_info and not record_ind_str_counter:
