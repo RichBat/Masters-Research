@@ -391,7 +391,7 @@ class AutoThresholder:
         """
         biased_centroid = 0
         window_width_weight = 0
-        #print("Values", values)
+        print("Values", len(values), len(weights), len(voxel_weights))
         fully_weighted_distrib = np.zeros(shape=tuple([len(values)]))
         weight_distrib = np.zeros_like(fully_weighted_distrib)
         for fwd in range(len(values)):
@@ -400,15 +400,15 @@ class AutoThresholder:
             else:
                 weight = weights[int(values[fwd])]
             weight_distrib[fwd] = weight
-            fully_weighted_distrib[fwd] = values[fwd] * weight * voxel_weights[fwd]
-        sns.lineplot(x=np.arange(0, len(values)), y=values)
+            fully_weighted_distrib[fwd] = fwd * weight * voxel_weights[fwd]
+        '''sns.lineplot(x=np.arange(0, len(values)), y=values)
         plt.show()
         sns.lineplot(x=np.arange(0, len(values)), y=weight_distrib)
         plt.show()
         sns.lineplot(x=np.arange(0, len(values)), y=voxel_weights)
         plt.show()
         sns.lineplot(x=np.arange(0, len(values)), y=fully_weighted_distrib)
-        plt.show()
+        plt.show()'''
         if width_option is None:
             width_option = weight_option
         for d in range(len(values), 0, -1):
@@ -419,6 +419,7 @@ class AutoThresholder:
             for v in range(0, d):
                 weighted_val = fully_weighted_distrib[v]
                 sum_scaled += weighted_val
+                weight_total += weights[int(values[v])]
             if weight_option == 0:
                 biased_window_centroid = sum_scaled / d
             else:
@@ -434,6 +435,8 @@ class AutoThresholder:
                 window_width_weight += d / len(values)
             else:
                 window_width_weight = len(values)
+        print("Accumulated centroid", biased_centroid)
+        print("Window width weight", window_width_weight)
         return biased_centroid / window_width_weight
 
     def _weighted_intensity_centroid(self, values, weights, voxel_weights, weight_option=0, width_option=None):
@@ -452,6 +455,10 @@ class AutoThresholder:
         biased_centroid = 0
         window_width_weight = 0
         #print("Values", values)
+        '''sns.lineplot(x=np.arange(0, len(values)), y=values)
+        plt.show()
+        sns.lineplot(x=np.arange(0, len(voxel_weights)), y=voxel_weights)
+        plt.show()'''
         if width_option is None:
             width_option = weight_option
         for d in range(len(values), 0, -1):
@@ -485,6 +492,8 @@ class AutoThresholder:
                 window_width_weight += d / len(values)
             else:
                 window_width_weight = len(values)
+        print("Accumulated centroid", biased_centroid)
+        print("Window width weight", window_width_weight)
         return biased_centroid / window_width_weight
 
     def _mass_percentage(self, mass, cut_off):

@@ -2117,7 +2117,7 @@ class thresholding_metrics(AutoThresholder):
                 sns.lineplot(y=adjusted_ihh, x=np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_ihh)), ax=ax_three)
                 sns.lineplot(y=reweighted_norm_graph, x=np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_ihh)), ax=ax_four)
 
-            apply_flip_to_ihh()
+            # apply_flip_to_ihh()
 
             def flip_grads_around_intersect():
                 graph_array = np.array(struct_size_change)
@@ -2146,7 +2146,7 @@ class thresholding_metrics(AutoThresholder):
                 sns.lineplot(y=reweighted_norm_graph/reweighted_norm_graph.max(), x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=axc)
                 axc.axvline(x=centr2 + int(low_thrsh), c='r')
 
-            flip_grads_around_intersect()
+            # flip_grads_around_intersect()
             fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
             sns.lineplot(y=struct_size_change, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=ax1)
             ax1.set_title("Cumulative change in mean struct size descending")
@@ -2325,8 +2325,8 @@ class thresholding_metrics(AutoThresholder):
             plt.show()
 
     def place_expert_lines(self, sample_to_use):
-        save_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\"
-        expert_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\"
+        save_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\"
+        expert_path = "C:\\RESEARCH\\Mitophagy_data\\gui params\\"
         ihh_data = {}
         expert_data = {}
         with open(save_path + "sample_ihh_values.json", 'r') as j:
@@ -2362,7 +2362,7 @@ class thresholding_metrics(AutoThresholder):
         plt.show()
         slopes, slope_points = self._get_slope(sample_specific_data['x'], sample_specific_data['y'])
         mving_slopes = self._moving_average(slopes, window_size=8)
-        colour_range = sns.color_palette('tab10')[1:]
+        '''colour_range = sns.color_palette('tab10')[1:]
         colour_counter = 0
         for ex, thrsh in expert_data.items():
             plt.axvline(x=thrsh, label=ex, color=colour_range[colour_counter])
@@ -2375,7 +2375,7 @@ class thresholding_metrics(AutoThresholder):
             plt.axvline(x=thrsh, label=ex, color=colour_range[colour_counter])
             colour_counter += 1
         sns.lineplot(x=slope_points, y=mving_slopes)
-        plt.show()
+        plt.show()'''
 
         sample_image = io.imread(self.image_paths[sample_to_use])
         low_thresh_only = self._threshold_image(sample_image, intense_min, intense_min + 1)*sample_image
@@ -2384,14 +2384,172 @@ class thresholding_metrics(AutoThresholder):
         flattened_rgb = np.amax(np.stack([low_thresh_only, lower_high_change, higher_high_change], axis=-1), axis=0)
         io.imshow(flattened_rgb)
         plt.show()
+        max_slope = math.ceil(max(mving_slopes))
+        logist = self._generate_sigmoid(max_slope / 2, k=6)
+        logist_rescaled = np.array([logist[int(lgr)] for lgr in mving_slopes])
+        print(len(logist), logist_rescaled.shape, max_slope)
+        logist_weighted = self._apply_weights(logist_rescaled, mving_slopes)
+        logist_knee_f = KneeLocator(np.linspace(0, len(logist_weighted), len(logist_weighted)), logist_weighted, S=0.1, curve="convex",
+                                    direction="decreasing")
+        logist_knee = int(logist_knee_f.knee)
+        print("Weighted Knee", logist_knee)
+        '''sns.lineplot(x=sample_specific_data['x'], y=sample_specific_data['y'])
+        plt.show()
+        sns.lineplot(x=slope_points, y=mving_slopes)
+        plt.show()
+        sns.lineplot(x=slope_points[logist_knee:], y=mving_slopes[logist_knee:])
+        plt.show()'''
+        print(len(mving_slopes[logist_knee:]), len(mving_slopes), logist_knee)
+        '''sns.lineplot(x=np.arange(len(logist)), y=logist)
+        plt.show()'''
+        '''sns.lineplot(x=slope_points, y=logist_rescaled)
+        plt.show()'''
+        norm_ihh = [y/max(sample_specific_data['y']) for y in sample_specific_data['y']]
+        centr = self._weighted_intensity_centroid_eff(mving_slopes[logist_knee:], logist, norm_ihh[logist_knee:-1], weight_option=2)
+        print("Centroid", centr + logist_knee)
+        centr_2 = self._logistic_thresholding(mving_slopes, sample_specific_data['y'], steepness=6, weighted_option=2)
+        print("Centroid 2", centr_2 + logist_knee)
+        rensu_im = self._threshold_image(sample_image, intense_min, expert_data['rensu'])*sample_image
+        auto_im = self._threshold_image(sample_image, intense_min, intense_min + centr)*sample_image
+        rgb_2 = np.amax(np.stack([rensu_im, auto_im, sample_image], axis=-1), axis=0)
+        io.imshow(rgb_2)
+        plt.show()
+
+    def vox_struct_info(self, sample_used):
+        expert_path = "C:\\RESEARCH\\Mitophagy_data\\gui params\\"
+        expert_data = {}
+        experts = [(f.split('_')[0], expert_path + f) for f in listdir(expert_path) if isfile(join(expert_path, f)) and
+                   f.endswith("_thresholds.json")]
+        for e in experts:
+            with open(e[1]) as j:
+                expert_results = json.load(j)
+                if sample_used in expert_results:
+                    expert_data[e[0]] = expert_results[sample_used]["high"]
+
+        spatial_info_path = "C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\spatio_struct_info.json"
+        with open(spatial_info_path, "r") as j:
+            spatial_info = json.load(j)
+        sample_specific_info = spatial_info[sample_used]
+        low_thrsh = sample_specific_info["low_thr"]
+        ihh_data = sample_specific_info["ihh"]
+        ihh_data.reverse()
+        norm_ihh = (np.array(ihh_data) / max(ihh_data))[:-1]
+        struct_info = sample_specific_info["Structures Lost"]
+        structures_present = []
+        current_total_mean = []
+        current_structures = None
+        prior_structures = None
+        struct_size_change = []
+        struct_size_past = None
+        struct_size_gradient = []
+        struct_size_gradient_prior = None
+        struct_count = []
+        added_struct_count = []
+        average_struct_size_present = []
+        voxels_added = []
+        for g in range(len(struct_info) - 1, 0, -1):
+            # print(current_structures, prior_structures, len(struct_info[g]))
+            if current_structures is None and len(struct_info[g]) > 0:
+                current_structures = np.array(struct_info[g])
+                prior_structures = np.array(struct_info[g])
+                struct_size_past = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                struct_size_gradient_prior = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                struct_size_change.append(struct_size_past)
+                struct_size_gradient.append(struct_size_gradient_prior)
+            elif len(struct_info[g]) == 0 and struct_size_past is not None:
+                struct_size_change.append(struct_size_past)
+                struct_size_gradient.append(struct_size_gradient_prior)
+            elif current_structures is not None and prior_structures is not None and struct_size_past is not None and len(struct_info[g]) > 0:
+                current_structures = np.array(struct_info[g])
+                struct_size_past = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean()) + struct_size_past
+                struct_size_change.append(struct_size_past)
+                struct_size_gradient_prior = ((current_structures.mean() - prior_structures.mean()) / current_structures.mean())
+                struct_size_gradient.append(struct_size_gradient_prior)
+                prior_structures = np.array(struct_info[g])
+            else:
+                pass
+            if current_structures is not None:
+                structures_present += struct_info[g]
+                struct_count.append(len(structures_present))
+                added_struct_count.append(len(struct_info[g]))
+                current_total_mean.append(np.array(structures_present).mean())
+                struct_sze = np.array(struct_info[g]).mean() if len(struct_info[g]) > 0 else 0
+                average_struct_size_present.append(struct_sze)
+                voxels_added.append(sum(struct_info[g]))
+        struct_size_change.reverse()
+        struct_size_gradient.reverse()
+        current_total_mean.reverse()
+        added_struct_count.reverse()
+        struct_count.reverse()
+        average_struct_size_present.reverse()
+        voxels_added.reverse()
+        cum_change_mean = np.array(struct_size_change).mean()
+        leftmost_intersect_intensity = []
+        for t in range(1, len(struct_size_change)):  # need to interpolate to determine actual intersections. go from left to right
+            if struct_size_change[t - 1] < cum_change_mean < struct_size_change[t]:
+                if abs(struct_size_change[t - 1] - cum_change_mean) < abs(struct_size_change[t] - cum_change_mean):
+                    leftmost_intersect_intensity.append(t - 1)
+                else:
+                    leftmost_intersect_intensity.append(t)
+            else:
+                if cum_change_mean == struct_size_change[t - 1]:
+                    leftmost_intersect_intensity.append(t - 1)
+                if cum_change_mean == struct_size_change[t]:
+                    leftmost_intersect_intensity.append(t)
+        leftmost_intersect_intensity = min(leftmost_intersect_intensity)
+        print(len(struct_size_change), len(struct_size_gradient))
+        left_peak_change = np.where(
+            struct_size_gradient[0:leftmost_intersect_intensity + 1] == np.amin(struct_size_gradient[0:leftmost_intersect_intensity + 1]))
+        left_peak_change = int(min(left_peak_change)[0])
+        print("Intersection point", left_peak_change + int(low_thrsh))
+
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+        sns.lineplot(y=struct_size_change, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=ax1)
+        ax1.set_title("Cumulative change in mean struct size descending")
+        # ax1.axhline(y=cum_change_mean, c='r')
+        # ax1.axvline(x=left_peak_change + int(low_thrsh), c='g')
+        sns.lineplot(y=struct_size_gradient, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_gradient)), ax=ax2)
+        ax2.set_title("Relative change in average struct size between intensities descending")
+        # ax2.axhline(y=np.array(struct_size_gradient).mean(), c='r')
+        ax2.axvline(x=left_peak_change + int(low_thrsh), c='g')
+        sns.lineplot(y=current_total_mean, x=np.arange(int(low_thrsh), int(low_thrsh) + len(current_total_mean)), ax=ax3)
+        ax3.set_title("Mean structure size of all structures currently present")
+
+        fig2, (ax4, ax5, ax6) = plt.subplots(3, 1)
+        sns.lineplot(y=average_struct_size_present, x=np.arange(int(low_thrsh), int(low_thrsh) + len(average_struct_size_present)), ax=ax4)
+        ax4.set_title("Average Structure size of newly added structures")
+        sns.lineplot(y=voxels_added, x=np.arange(int(low_thrsh), int(low_thrsh) + len(voxels_added)), ax=ax5)
+        ax5.set_title("Newly added Voxels")
+        sns.lineplot(y=struct_count, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_count)), ax=ax6)
+        ax6.set_title("Structures present")
+        plt.show()
+
+        def integr_centroid(number_range):
+            test_centr_1 = np.trapz(y=number_range * np.arange(int(low_thrsh), left_peak_change + int(low_thrsh))) / np.trapz(number_range)
+            return test_centr_1
+        intersect = left_peak_change + int(low_thrsh)
+        mean_struct_centroid = integr_centroid(current_total_mean[:left_peak_change])
+        cum_change_centroid = integr_centroid(struct_size_change[:left_peak_change])
+        print(mean_struct_centroid, cum_change_centroid)
+
+        sample_image = io.imread(self.image_paths[sample_used])
+        expert_thresh = self._threshold_image(sample_image, int(low_thrsh), int(expert_data['rensu']))*sample_image
+        intersect_thresh = self._threshold_image(sample_image, int(low_thrsh), left_peak_change + int(low_thrsh))*sample_image
+        centroid_thresh = sample_image
+        flattened_rgb = np.amax(np.stack([expert_thresh, intersect_thresh, centroid_thresh], axis=-1), axis=0)
+        io.imshow(flattened_rgb)
+        plt.show()
+
+        # Investigate centroid manipulations further to try to find a middle ground
 
 
 
 if __name__ == "__main__":
-    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
+    system_analyst.vox_struct_info("CCCP_1C=0T=0.tif")
     # system_analyst.place_expert_lines("CCCP_1C=0T=0.tif")
-    system_analyst.place_expert_lines("CCCP_1C=1T=0.tif")
+    # system_analyst.place_expert_lines("CCCP_1C=1T=0.tif")
     # system_analyst.generate_ihh_figures()
     # system_analyst.get_sample_ihh()
     # system_analyst.recalc_thresh_with_vox_weight_new()
