@@ -719,11 +719,11 @@ class AutoThresholder:
             thresholded[i] = i_sum
         thresholded.reverse()
         intensities.reverse()
-        print("Checking reversal")
+        '''print("Checking reversal")
         print(thresholded)
         print(intensities)
-        sns.lineplot(y=thresholded, x=np.arange(intensities))
-        plt.show()
+        sns.lineplot(y=thresholded, x=intensities)
+        plt.show()'''
         if record_ind_str_counter and not struct_size_info:
             return intensities, thresholded, ind_count
         if struct_size_info and not record_ind_str_counter:
@@ -1122,8 +1122,8 @@ class AutoThresholder:
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
-    threshold_comparer = AutoThresholder(input_path)
-    threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
+    # threshold_comparer = AutoThresholder(input_path)
+    # threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
     # threshold_comparer.process_images(steepness=50)
     # threshold_comparer.get_threshold_results()
     # threshold_comparer.save_threshold_results("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")

@@ -2302,11 +2302,100 @@ class thresholding_metrics(AutoThresholder):
 
             print("")
 
+    def get_sample_ihh(self):
+        save_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\"
+        sample_data = {}
+        for f in self.file_list:
+            print("Image currently", f[1])
+            image = self._grayscale(io.imread(f[0]))
+            lw_thrsh = self._low_select(img=image)[0]
+            intens, thresh = self._efficient_hysteresis_iterative(image, lw_thrsh)
+            sample_data[f[1]] = {"x":intens, "y":thresh}
+            with open(save_path + "sample_ihh_values.json", 'w') as j:
+                json.dump(sample_data, j)
+
+    def generate_ihh_figures(self):
+        save_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\"
+        ihh_data = {}
+        with open(save_path + "sample_ihh_values.json", 'r') as j:
+            ihh_data = json.load(j)
+        for sample_name, ihh in ihh_data.items():
+            sns.lineplot(x=ihh['x'], y=ihh['y'])
+            plt.title(sample_name)
+            plt.show()
+
+    def place_expert_lines(self, sample_to_use):
+        save_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\"
+        expert_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\"
+        ihh_data = {}
+        expert_data = {}
+        with open(save_path + "sample_ihh_values.json", 'r') as j:
+            ihh_data = json.load(j)
+        experts = [(f.split('_')[0],  expert_path + f) for f in listdir(expert_path) if isfile(join(expert_path, f)) and
+                   f.endswith("_thresholds.json")]
+        sample_specific_data = ihh_data[sample_to_use]
+        sample_specific_data['x'].reverse()
+        sample_specific_data['y'].reverse()
+        intense_min = sample_specific_data['x'][0] - 1
+        for e in experts:
+            with open(e[1]) as j:
+                expert_results = json.load(j)
+                if sample_to_use in expert_results:
+                    expert_data[e[0]] = expert_results[sample_to_use]["high"]
+        '''colour_range = sns.color_palette('tab10')[1:]
+        colour_counter = 0
+        for ex, thrsh in expert_data.items():
+            plt.axvline(x=thrsh, label=ex, color=colour_range[colour_counter])
+            colour_counter += 1'''
+        expert_values = [val for exp, val in expert_data.items()]
+        exp_min = int(min(expert_values))
+        exp_max = int(max(expert_values))
+        thresh_max = sample_specific_data['y'][np.where(np.array(sample_specific_data['x']) == exp_min)[0][0]]
+        thresh_min = sample_specific_data['y'][np.where(np.array(sample_specific_data['x']) == exp_max)[0][0]]
+        index_max = np.where(np.array(sample_specific_data['x']) == exp_min)[0][0]
+        index_min = np.where(np.array(sample_specific_data['x']) == exp_max)[0][0]
+        thresh_diffs = [max(sample_specific_data['y'])*0.05, thresh_max - thresh_min]
+        highlight_distrib_max = np.array(sample_specific_data['y'])[index_max:index_min] + thresh_diffs[0]
+        highlight_distrib_min = np.array(sample_specific_data['y'])[index_max:index_min] - thresh_diffs[0]
+        plt.fill_between(np.arange(exp_min, exp_max), highlight_distrib_max, highlight_distrib_min, color='g', alpha=0.7)
+        sns.lineplot(x=sample_specific_data['x'], y=sample_specific_data['y'])
+        plt.show()
+        slopes, slope_points = self._get_slope(sample_specific_data['x'], sample_specific_data['y'])
+        mving_slopes = self._moving_average(slopes, window_size=8)
+        colour_range = sns.color_palette('tab10')[1:]
+        colour_counter = 0
+        for ex, thrsh in expert_data.items():
+            plt.axvline(x=thrsh, label=ex, color=colour_range[colour_counter])
+            colour_counter += 1
+        sns.lineplot(x=slope_points, y=slopes)
+        plt.show()
+        colour_range = sns.color_palette('tab10')[1:]
+        colour_counter = 0
+        for ex, thrsh in expert_data.items():
+            plt.axvline(x=thrsh, label=ex, color=colour_range[colour_counter])
+            colour_counter += 1
+        sns.lineplot(x=slope_points, y=mving_slopes)
+        plt.show()
+
+        sample_image = io.imread(self.image_paths[sample_to_use])
+        low_thresh_only = self._threshold_image(sample_image, intense_min, intense_min + 1)*sample_image
+        lower_high_change = self._threshold_image(sample_image, intense_min, exp_min)*sample_image
+        higher_high_change = self._threshold_image(sample_image, intense_min, exp_max)*sample_image
+        flattened_rgb = np.amax(np.stack([low_thresh_only, lower_high_change, higher_high_change], axis=-1), axis=0)
+        io.imshow(flattened_rgb)
+        plt.show()
+
+
+
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
+    # system_analyst.place_expert_lines("CCCP_1C=0T=0.tif")
+    system_analyst.place_expert_lines("CCCP_1C=1T=0.tif")
+    # system_analyst.generate_ihh_figures()
+    # system_analyst.get_sample_ihh()
     # system_analyst.recalc_thresh_with_vox_weight_new()
-    system_analyst.visualise_spatial_info()
+    # system_analyst.visualise_spatial_info()
     # system_analyst.get_spatial_metrics_more()
     # system_analyst.visualise_struct_counts()
     # system_analyst.extract_information_samples()
