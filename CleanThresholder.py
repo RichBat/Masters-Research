@@ -378,7 +378,7 @@ class AutoThresholder:
         inverted_centroid = self._weighted_intensity_centroid(slopes[invert_knee:], invert_dict, vox_weight[invert_knee:], weighted_option)
         return inverted_centroid
 
-    def _weighted_intensity_centroid_eff(self, values, weights, voxel_weights, weight_option=0, width_option=None):
+    def _weighted_intensity_centroid_eff(self, values, weights, voxel_weights, weight_option=0, width_option=None, extra_weighting=None):
         """
         This method will apply the weights for each value to the value. Values and voxel_weights must clip [knee:] in argument.
         The weighted window for each intensity should be calculated by applying the normalized voxel weight and the calculated weight.
@@ -391,9 +391,10 @@ class AutoThresholder:
         """
         biased_centroid = 0
         window_width_weight = 0
-        print("Values", len(values), len(weights), len(voxel_weights))
+        # print("Values", len(values), len(weights), len(voxel_weights))
         fully_weighted_distrib = np.zeros(shape=tuple([len(values)]))
         weight_distrib = np.zeros_like(fully_weighted_distrib)
+        centroid_list = {}
         for fwd in range(len(values)):
             if type(weights) is dict:
                 weight = weights[values[fwd]]
@@ -401,6 +402,8 @@ class AutoThresholder:
                 weight = weights[int(values[fwd])]
             weight_distrib[fwd] = weight
             fully_weighted_distrib[fwd] = fwd * weight * voxel_weights[fwd]
+            if extra_weighting is not None:
+                fully_weighted_distrib[fwd] *= extra_weighting[fwd]
         '''sns.lineplot(x=np.arange(0, len(values)), y=values)
         plt.show()
         sns.lineplot(x=np.arange(0, len(values)), y=weight_distrib)
@@ -427,6 +430,7 @@ class AutoThresholder:
                     #print("Range of weights", weights)
                     weight_total = 1
                 biased_window_centroid = sum_scaled / weight_total
+            centroid_list[d] = biased_window_centroid
             biased_centroid += biased_window_centroid
             if width_option == 2:
                 window_mass = self._mass_percentage(voxel_weights, d)
@@ -435,8 +439,10 @@ class AutoThresholder:
                 window_width_weight += d / len(values)
             else:
                 window_width_weight = len(values)
-        print("Accumulated centroid", biased_centroid)
-        print("Window width weight", window_width_weight)
+        #print("Accumulated centroid", biased_centroid)
+        #print("Window width weight", window_width_weight)
+        print(centroid_list)
+        print("Centroid", biased_centroid / window_width_weight)
         return biased_centroid / window_width_weight
 
     def _weighted_intensity_centroid(self, values, weights, voxel_weights, weight_option=0, width_option=None):
@@ -1145,4 +1151,4 @@ if __name__ == "__main__":
                                               "C:\\RESEARCH\\Mitophagy_data\\Time_split\\Test_Threshold\\")'''
     # threshold_comparer.test_steep_impact([6, 20, 30, 40], save_path="C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\")
     # threshold_comparer.compare_results(4)
-    threshold_comparer.structure_count_diff(mip=False)
+    # threshold_comparer.structure_count_diff(mip=False)

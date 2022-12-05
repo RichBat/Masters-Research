@@ -2431,9 +2431,11 @@ class thresholding_metrics(AutoThresholder):
             spatial_info = json.load(j)
         sample_specific_info = spatial_info[sample_used]
         low_thrsh = sample_specific_info["low_thr"]
+        #print("Low thresh", low_thrsh)
         ihh_data = sample_specific_info["ihh"]
         ihh_data.reverse()
         norm_ihh = (np.array(ihh_data) / max(ihh_data))[:-1]
+        intensities = np.arange(int(low_thrsh), int(low_thrsh) + int(len(ihh_data)))
         struct_info = sample_specific_info["Structures Lost"]
         structures_present = []
         current_total_mean = []
@@ -2497,13 +2499,13 @@ class thresholding_metrics(AutoThresholder):
                 if cum_change_mean == struct_size_change[t]:
                     leftmost_intersect_intensity.append(t)
         leftmost_intersect_intensity = min(leftmost_intersect_intensity)
-        print(len(struct_size_change), len(struct_size_gradient))
+        #print(len(struct_size_change), len(struct_size_gradient))
         left_peak_change = np.where(
             struct_size_gradient[0:leftmost_intersect_intensity + 1] == np.amin(struct_size_gradient[0:leftmost_intersect_intensity + 1]))
         left_peak_change = int(min(left_peak_change)[0])
-        print("Intersection point", left_peak_change + int(low_thrsh))
-
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+        #print("Intersection point", left_peak_change + int(low_thrsh))
+        #print("Expert Threshold", expert_data['rensu'])
+        '''fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
         sns.lineplot(y=struct_size_change, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_size_change)), ax=ax1)
         ax1.set_title("Cumulative change in mean struct size descending")
         # ax1.axhline(y=cum_change_mean, c='r')
@@ -2522,32 +2524,89 @@ class thresholding_metrics(AutoThresholder):
         ax5.set_title("Newly added Voxels")
         sns.lineplot(y=struct_count, x=np.arange(int(low_thrsh), int(low_thrsh) + len(struct_count)), ax=ax6)
         ax6.set_title("Structures present")
-        plt.show()
+        plt.show()'''
 
         def integr_centroid(number_range):
             test_centr_1 = np.trapz(y=number_range * np.arange(int(low_thrsh), left_peak_change + int(low_thrsh))) / np.trapz(number_range)
             return test_centr_1
+
+        def adjust_remaining_curve(distrib, separator):
+            array_representation = np.array(distrib)
+            if array_representation.min() < 0:
+                array_representation += abs(array_representation.min())
+            adjusted_distrib = np.ones_like(array_representation)
+            # print("Array Rep Shape 1", adjusted_distrib.shape)
+            adjusted_distrib[:separator] = array_representation[:separator]
+            # print("Array Rep Shape 2", adjusted_distrib.shape)
+            constant_val = distrib[separator]
+            max_range = len(distrib)
+            step_points = constant_val/(max_range - separator)
+            # print(constant_val, step_points, separator, max_range)
+            decreasing_range = [constant_val - dr*step_points for dr in range(max_range - separator)]
+            # print(decreasing_range)
+            adjusted_distrib[separator:] *= 0
+            # print("Array Rep Shape 3", adjusted_distrib.shape)
+            centroid = np.trapz(y=adjusted_distrib * np.arange(int(low_thrsh), int(low_thrsh) + len(adjusted_distrib))) / np.trapz(adjusted_distrib)
+            return centroid
+
+        mean_size_by_count = np.array(current_total_mean)
+        other_centr = np.trapz(y=mean_size_by_count * np.arange(int(low_thrsh), int(low_thrsh) + len(mean_size_by_count))) / np.trapz(mean_size_by_count)
         intersect = left_peak_change + int(low_thrsh)
+        other_centr_adjusted = adjust_remaining_curve(mean_size_by_count, left_peak_change)
+        #print("Mean struct size and count centroid", other_centr, other_centr_adjusted)
         mean_struct_centroid = integr_centroid(current_total_mean[:left_peak_change])
         cum_change_centroid = integr_centroid(struct_size_change[:left_peak_change])
-        print(mean_struct_centroid, cum_change_centroid)
+        #print(mean_struct_centroid, cum_change_centroid)
+        mean_struct_centroid_2 = adjust_remaining_curve(current_total_mean, left_peak_change)
+        cum_change_centroid_2 = adjust_remaining_curve(struct_size_change, left_peak_change)
+        #print(mean_struct_centroid_2, cum_change_centroid_2)
 
-        sample_image = io.imread(self.image_paths[sample_used])
+        '''sample_image = io.imread(self.image_paths[sample_used])
         expert_thresh = self._threshold_image(sample_image, int(low_thrsh), int(expert_data['rensu']))*sample_image
-        intersect_thresh = self._threshold_image(sample_image, int(low_thrsh), left_peak_change + int(low_thrsh))*sample_image
-        centroid_thresh = sample_image
+        intersect_thresh = self._threshold_image(sample_image, int(low_thrsh), intersect)*sample_image
+        centroid_thresh = self._threshold_image(sample_image, int(low_thrsh), other_centr_adjusted)*sample_image
         flattened_rgb = np.amax(np.stack([expert_thresh, intersect_thresh, centroid_thresh], axis=-1), axis=0)
         io.imshow(flattened_rgb)
-        plt.show()
+        plt.show()'''
 
+        slopes, slope_points = self._get_slope(intensities, ihh_data)
+        mving_slopes = self._moving_average(slopes, window_size=8)
+        max_slope = math.ceil(max(mving_slopes))
+        logist = self._generate_sigmoid(max_slope / 2, k=6)
+        logist_rescaled = np.array([logist[int(lgr)] for lgr in mving_slopes])
+        #print(len(logist), logist_rescaled.shape, max_slope)
+        logist_weighted = self._apply_weights(logist_rescaled, mving_slopes)
+        logist_knee_f = KneeLocator(np.linspace(0, len(logist_weighted), len(logist_weighted)), logist_weighted, S=0.1, curve="convex",
+                                    direction="decreasing")
+        logist_knee = int(logist_knee_f.knee)
+        print("Normal Centroids:")
+        high_thresh_1 = self._weighted_intensity_centroid_eff(mving_slopes[logist_knee:], logist, norm_ihh[logist_knee:], weight_option=2) + int(low_thrsh)
+        #print("High threshold", centr + int(low_thrsh))
+        #print("Sizes for distribution weightings", len(norm_ihh), len(mean_size_by_count))
+        new_ihh_weighting = (mean_size_by_count / mean_size_by_count.max()) * norm_ihh
+        print("Adjusted Centroids:")
+        high_thresh_2 = self._weighted_intensity_centroid_eff(mving_slopes[logist_knee:], logist, new_ihh_weighting[logist_knee:], weight_option=2) + int(low_thrsh)
+        #print("With weighting adjustments", centr + int(low_thrsh))
         # Investigate centroid manipulations further to try to find a middle ground
 
+        return intersect, expert_data['rensu'], low_thrsh, other_centr, other_centr_adjusted, high_thresh_1, high_thresh_2
 
+    def get_vox_info_per_sample(self, save_path):
+        vox_data = {}
+        for f in self.file_list:
+            print("Sample", f[1])
+            intersect, expert_thresh, low_thresh, struct_centroid, struct_centroid_cut, high_thresh_normal, high_thresh_adjusted = self.vox_struct_info(f[1])
+            vox_data[f[1]] = {"Intersection": str(intersect), "Expert":str(expert_thresh), "Low":str(low_thresh),
+                              "Struct centroids - norm and adjust": [str(struct_centroid), str(struct_centroid_cut)],
+                              "High - without and with":[str(high_thresh_normal), str(high_thresh_adjusted)]}
+        '''with open(save_path + "vox_struct_effect3.json", 'w') as j:
+            json.dump(vox_data, j)'''
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.vox_struct_info("CCCP_1C=0T=0.tif")
+    system_analyst.get_vox_info_per_sample("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\")
+    # system_analyst.vox_struct_info("CCCP_1C=1T=0.tif")
     # system_analyst.place_expert_lines("CCCP_1C=0T=0.tif")
     # system_analyst.place_expert_lines("CCCP_1C=1T=0.tif")
     # system_analyst.generate_ihh_figures()
