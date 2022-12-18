@@ -2602,10 +2602,198 @@ class thresholding_metrics(AutoThresholder):
         '''with open(save_path + "vox_struct_effect3.json", 'w') as j:
             json.dump(vox_data, j)'''
 
+    def test_reverse_windowing_more(self, sample_used):
+        expert_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\"
+        expert_data = {}
+        experts = [(f.split('_')[0], expert_path + f) for f in listdir(expert_path) if isfile(join(expert_path, f)) and
+                   f.endswith("_thresholds.json")]
+        for e in experts:
+            with open(e[1]) as j:
+                expert_results = json.load(j)
+                if sample_used in expert_results:
+                    expert_data[e[0]] = expert_results[sample_used]["high"]
+
+        ihh_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\sample_ihh_values.json"
+        with open(ihh_path, "r") as j:
+            ihh_info = json.load(j)
+        sample_specific_info = ihh_info[sample_used]
+        intensities = sample_specific_info["x"]
+        ihh_data = sample_specific_info["y"]
+        intensities.reverse()
+        ihh_data.reverse()
+        low_thrsh = intensities[0]-1
+
+        intensities = np.arange(int(low_thrsh), int(low_thrsh) + int(len(ihh_data)))
+
+        slopes, slope_points = self._get_slope(intensities, ihh_data)
+        mving_slopes = self._moving_average(slopes, window_size=8)
+        '''fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+        sns.lineplot(y=ihh_data, x=intensities, ax=ax1)
+        sns.lineplot(y=slopes, x=slope_points, ax=ax2)
+        sns.lineplot(y=mving_slopes, x=slope_points, ax=ax3)
+        plt.show()'''
+        max_slope = math.ceil(max(mving_slopes))
+        logist = self._generate_sigmoid(max_slope / 2, k=6)
+        logist_rescaled = np.array([logist[int(lgr)] for lgr in mving_slopes])
+        logist_weighted = self._apply_weights(logist_rescaled, mving_slopes)
+        logist_knee_f = KneeLocator(np.linspace(0, len(logist_weighted), len(logist_weighted)), logist_weighted, S=0.1,
+                                    curve="convex",
+                                    direction="decreasing")
+        logist_knee = int(logist_knee_f.knee)
+        norm_ihh = (np.array(ihh_data)[logist_knee:] / max(ihh_data[logist_knee:]))
+        print("Normal Centroids:")
+        high_thresh_1 = self._weighted_intensity_centroid_eff(mving_slopes[logist_knee:], logist,
+                                                              norm_ihh[:-1], weight_option=2) + int(low_thrsh)
+
+        print("Reverse Centroids:")
+        high_thresh_2 = self._weighted_intensity_centroid_rev(mving_slopes[logist_knee:], logist,
+                                                              norm_ihh[:-1], weight_option=2) + int(
+            low_thrsh)
+        print("Normal Centroid windows", high_thresh_1, "Reverse Windows", high_thresh_2)
+        print("---------------------Adjusted denominator------------------------")
+        print("Normal Centroids:")
+        high_thresh_1 = self._weighted_intensity_centroid_eff(mving_slopes[logist_knee:], logist,
+                                                              norm_ihh[:-1], weight_option=2, voxel_biasing=True) + int(low_thrsh)
+
+        print("Reverse Centroids:")
+        high_thresh_2 = self._weighted_intensity_centroid_rev(mving_slopes[logist_knee:], logist,
+                                                              norm_ihh[:-1], weight_option=2, voxel_biasing=True) + int(
+            low_thrsh)
+        print("Normal Centroid windows", high_thresh_1, "Reverse Windows", high_thresh_2)
+        print("")
+
+    def go_through_samples(self):
+        for f in self.file_list:
+            print("Sample", f[1])
+            self.test_reverse_windowing_more(f[1])
+
+    def show_low_thresholds(self):
+        json_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json"
+        for f in self.file_list:
+            print("Sample", f[1])
+            with open(json_path, "r") as j:
+                low_values = json.load(j)
+            sample_image = io.imread(f[0])
+            sample_metrics = low_values[f[1] + " 0"]
+            intensity_counts, intensity_range = histogram(sample_image, nbins=256)
+            sns.lineplot(x=intensity_range, y=intensity_counts)
+            plt.axvline(x=int(sample_metrics["Otsu"]), c='r')
+            plt.axvline(x=int(sample_metrics["Normal"]), c='g')
+            plt.axvline(x=int(sample_metrics["Log"]), c='k')
+            plt.show()
+
+    def gradient_represents(self):
+        json_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\sample_ihh_values.json"
+        with open(json_path, "r") as j:
+            ihh_information = json.load(j)
+        for f in self.file_list:
+            print("Sample", f[1])
+            sample_information = ihh_information[f[1]]
+            slopes, slope_points = self._get_slope(sample_information['x'], sample_information['y'])
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            inverted_values, some_dict = self._invert_rescaler(mving_slopes)
+            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4)
+            plt.tight_layout()
+            sns.lineplot(x=sample_information['x'], y=sample_information['y'], ax=ax1)
+            ax1.set_title("Original IHH")
+            sns.lineplot(x=slope_points, y=slopes, ax=ax2)
+            ax2.set_title("Gradient Distribution")
+            sns.lineplot(x=slope_points, y=mving_slopes, ax=ax3)
+            ax3.set_title("Smoothed Gradient Distribution")
+            sns.lineplot(x=slope_points, y=inverted_values, ax=ax4)
+            ax4.set_title("Inverted Gradient Distribution")
+            plt.show()
+            sns.lineplot(x=slope_points, y=np.array(inverted_values)*np.array(sample_information['y'])[:-1])
+            plt.show()
+            integral_test = np.trapz(y=np.array(inverted_values) * np.array(slope_points))/np.trapz(np.array(inverted_values))
+            ihh_array = np.array(sample_information['y'])[:-1]
+            normed_ihh = ihh_array/ihh_array.max()
+            integral_test_2 = np.trapz(y=normed_ihh*np.array(inverted_values) * np.array(slope_points)) / np.trapz(
+                np.array(inverted_values))
+            print("Centroid by integration", integral_test+slope_points[-1], integral_test_2+slope_points[-1])
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=integral_test+slope_points[-1], c='k')
+            plt.show()
+            sns.lineplot(x=slope_points, y=np.array(inverted_values)*np.array(sample_information['y'])[:-1])
+            plt.axvline(x=integral_test_2 + slope_points[-1], c='k')
+            plt.show()
+
+    def compare_expert_with_failing(self):
+        json_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\sample_ihh_values.json"
+        expert_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\rensu_thresholds.json"
+        mip_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Expert Comparison\\MIP\\"
+        tif_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Expert Comparison\\TIFF\\"
+        with open(json_path, "r") as j:
+            ihh_information = json.load(j)
+        with open(expert_path, "r") as j:
+            expert_info = json.load(j)
+        for f in self.file_list:
+            print("Sample", f[1])
+            expert_threshes = expert_info[f[1]]
+            voxel_counts = ihh_information[f[1]]["y"]
+            intensity_range = ihh_information[f[1]]["x"]
+            intensity_range.reverse()
+            voxel_counts.reverse()
+            low_thrsh = intensity_range[0] - 1
+
+            intensities = np.arange(int(low_thrsh), int(low_thrsh) + int(len(voxel_counts)))
+
+            slopes, slope_points = self._get_slope(intensities, voxel_counts)
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            max_slope = math.ceil(max(mving_slopes))
+            logist = self._generate_sigmoid(max_slope / 2, k=6)
+            logist_rescaled = np.array([logist[int(lgr)] for lgr in mving_slopes])
+            logist_weighted = self._apply_weights(logist_rescaled, mving_slopes)
+            logist_knee_f = KneeLocator(np.linspace(0, len(logist_weighted), len(logist_weighted)), logist_weighted,
+                                        S=0.1,
+                                        curve="convex",
+                                        direction="decreasing")
+            logist_knee = int(logist_knee_f.knee)
+            norm_ihh = (np.array(voxel_counts)[logist_knee:] / max(voxel_counts[logist_knee:]))
+            print("Normal Centroids:")
+            high_thresh_1 = self._weighted_intensity_centroid_eff(mving_slopes[logist_knee:], logist,
+                                                                  norm_ihh[:-1], weight_option=2) + int(low_thrsh)
+            sample_image = io.imread(f[0])
+            expert_im = (self._threshold_image(sample_image, expert_threshes["low"], expert_threshes["high"])*sample_image).astype('uint8')
+            auto_im = (self._threshold_image(sample_image, int(low_thrsh), high_thresh_1)*sample_image).astype('uint8')
+            zeros_im = np.zeros_like(sample_image)
+            rgb_im = np.stack([expert_im, auto_im, zeros_im], axis=-1)
+            mip_im = np.amax(rgb_im, axis=0)
+            io.imsave(mip_path + f[1].split('.')[0] + "_MIP.png", mip_im)
+            io.imsave(tif_path + f[1], rgb_im)
+
+    def generate_two_ihh_and_struct_metrics(self):
+        expert_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\gui params\\rensu_thresholds.json"
+        low_thresh_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\lw_thrsh_metrics.json"
+        save_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\System Metrics\\"
+        data_dictionary = {}
+        with open(expert_path, "r") as j:
+            expert_info = json.load(j)
+        with open(low_thresh_path, "r") as j:
+            low_thresh_details = json.load(j)
+        for f in self.file_list:
+            print("Sample", f[1])
+            data_dictionary[f[1]] = {}
+            expert_low = int(expert_info[f[1]]["low"])
+            auto_details = low_thresh_details[f[1] + " 0"]
+            auto_low = int(auto_details["Chosen"])
+            sample_image = io.imread(f[0])
+            expert_details, auto_details = self._efficient_hysteresis_iterative_pair(sample_image, expert_low, auto_low)
+            data_dictionary[f[1]]["Expert"] = {"Intensities":expert_details[0], "Thresholds":expert_details[1],
+                                               "Str_Counts":expert_details[2], "Str_Sizes":expert_details[3]}
+            data_dictionary[f[1]]["Auto"] = {"Intensities": auto_details[0], "Thresholds": auto_details[1],
+                                               "Str_Counts": auto_details[2], "Str_Sizes": auto_details[3]}
+            with open(save_path + "many_metrics.json", 'w') as j:
+                json.dump(data_dictionary, j)
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.get_vox_info_per_sample("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\")
+    system_analyst.generate_two_ihh_and_struct_metrics()
+    # system_analyst.compare_expert_with_failing()
+    # system_analyst.gradient_represents()
+    # system_analyst.show_low_thresholds()
+    # system_analyst.go_through_samples()
+    # system_analyst.get_vox_info_per_sample("C:\\RESEARCH\\Mitophagy_data\\Time_split\\System_metrics\\")
     # system_analyst.vox_struct_info("CCCP_1C=1T=0.tif")
     # system_analyst.place_expert_lines("CCCP_1C=0T=0.tif")
     # system_analyst.place_expert_lines("CCCP_1C=1T=0.tif")

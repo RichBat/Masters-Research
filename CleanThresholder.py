@@ -378,7 +378,7 @@ class AutoThresholder:
         inverted_centroid = self._weighted_intensity_centroid(slopes[invert_knee:], invert_dict, vox_weight[invert_knee:], weighted_option)
         return inverted_centroid
 
-    def _weighted_intensity_centroid_eff(self, values, weights, voxel_weights, weight_option=0, width_option=None, extra_weighting=None):
+    def _weighted_intensity_centroid_rev(self, values, weights, voxel_weights, weight_option=0, width_option=None, extra_weighting=None, voxel_biasing=False):
         """
         This method will apply the weights for each value to the value. Values and voxel_weights must clip [knee:] in argument.
         The weighted window for each intensity should be calculated by applying the normalized voxel weight and the calculated weight.
@@ -395,6 +395,120 @@ class AutoThresholder:
         fully_weighted_distrib = np.zeros(shape=tuple([len(values)]))
         weight_distrib = np.zeros_like(fully_weighted_distrib)
         centroid_list = {}
+        window_masses = {}
+        for fwd in range(len(values)):
+            if type(weights) is dict:
+                weight = weights[values[fwd]]
+            else:
+                weight = weights[int(values[fwd])]
+            weight_distrib[fwd] = weight
+            fully_weighted_distrib[fwd] = fwd * weight * voxel_weights[fwd]
+            if extra_weighting is not None:
+                fully_weighted_distrib[fwd] *= extra_weighting[fwd]
+        '''sns.lineplot(x=np.arange(0, len(values)), y=values)
+        plt.show()
+        sns.lineplot(x=np.arange(0, len(values)), y=weight_distrib)
+        plt.show()
+        sns.lineplot(x=np.arange(0, len(values)), y=voxel_weights)
+        plt.show()
+        sns.lineplot(x=np.arange(0, len(values)), y=fully_weighted_distrib)
+        plt.show()'''
+        if width_option is None:
+            width_option = weight_option
+        for d in range(0, len(values)-1):
+            sum_scaled = 0
+            weight_total = 0.0
+            #print("Weight Total Reset")
+            weight_total = float(weight_total)
+            for v in range(d, len(values)):
+                weighted_val = fully_weighted_distrib[v]
+                sum_scaled += weighted_val
+                if voxel_biasing:
+                    weight_total += weights[int(values[v])] * np.power(voxel_weights[v], 0.5)
+                else:
+                    weight_total += weights[int(values[v])]
+            if weight_option == 0:
+                biased_window_centroid = sum_scaled / d
+            else:
+                if weight_total == 0:
+                    #print("Range of weights", weights)
+                    weight_total = 1
+                biased_window_centroid = sum_scaled / weight_total
+            if width_option == 2:
+                if voxel_biasing:
+                    window_mass = self._mass_percentage(voxel_weights*weight_distrib, d)
+                else:
+                    window_mass = self._mass_percentage(weight_distrib, d)
+                window_width_weight += window_mass
+                window_masses[d] = window_mass
+                centroid_list[d] = biased_window_centroid * window_mass
+                biased_centroid += biased_window_centroid * window_mass
+            elif width_option == 1:
+                window_width_weight += d / len(values)
+                centroid_list[d] = biased_window_centroid * (d / len(values))
+                biased_centroid += biased_window_centroid * (d / len(values))
+            else:
+                window_width_weight = len(values)
+                centroid_list[d] = biased_window_centroid
+                biased_centroid += biased_window_centroid
+        print("Accumulated centroid", biased_centroid)
+        print("Window width weight", window_width_weight)
+        print("Centroids", centroid_list)
+        print("Window Masses", window_masses)
+        print("Window weight", window_width_weight)
+        print("Centroid", biased_centroid / window_width_weight)
+        '''fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+        sns.lineplot(y=voxel_weights, x=np.arange(len(fully_weighted_distrib)), ax=ax1)
+        sns.lineplot(y=weight_distrib, x=np.arange(len(fully_weighted_distrib)), ax=ax2)
+        sns.lineplot(y=voxel_weights * weight_distrib, x=np.arange(len(fully_weighted_distrib)), ax=ax3)
+        plt.show()'''
+        return biased_centroid / window_width_weight
+
+    def _intensity_centroid(self, values, weights, voxel_weights, voxel_div=False):
+        """
+        This method will calculate the centroid for the distribution in value which will be the gradient distribution.
+        The numerator is the intensity value, the inverted gradient value and the voxel weighting for a given intensity.
+        The denominator is the sum of the inverted gradient distribution or said distribution with the product of the
+        voxel weights if voxel_div is True.
+        :param values:
+        :param weights:
+        :param voxel_weights:
+        :param voxel_div:
+        :return:
+        """
+        fully_weighted_distrib = np.zeros(shape=tuple([len(values)]))
+        weight_distrib = np.zeros_like(fully_weighted_distrib)
+        for fwd in range(len(values)):
+            if type(weights) is dict:
+                weight = weights[values[fwd]]
+            else:
+                weight = weights[int(values[fwd])]
+            if voxel_div:
+                weight_distrib[fwd] = weight * voxel_weights[fwd]
+            else:
+                weight_distrib[fwd] = weight
+            fully_weighted_distrib[fwd] = fwd * weight * voxel_weights[fwd]
+        centroid = fully_weighted_distrib.sum()/weight_distrib.sum()
+        return centroid
+
+    def _weighted_intensity_centroid_eff(self, values, weights, voxel_weights, weight_option=0, width_option=None, extra_weighting=None, voxel_biasing=False):
+        """
+        This method will apply the weights for each value to the value. Values and voxel_weights must clip [knee:] in argument.
+        The weighted window for each intensity should be calculated by applying the normalized voxel weight and the calculated weight.
+        This will then be used to determine the weighted, biased centroid
+        :param values:
+        :param weights:
+        :param voxel_weights:
+        :param weight_option:
+        :return:
+        """
+        biased_centroid = 0
+        window_width_weight = 0
+        # print("Values", len(values), len(weights), len(voxel_weights))
+        fully_weighted_distrib = np.zeros(shape=tuple([len(values)]))
+        weight_distrib = np.zeros_like(fully_weighted_distrib)
+        centroid_list = {}
+        window_masses = {}
         for fwd in range(len(values)):
             if type(weights) is dict:
                 weight = weights[values[fwd]]
@@ -422,7 +536,10 @@ class AutoThresholder:
             for v in range(0, d):
                 weighted_val = fully_weighted_distrib[v]
                 sum_scaled += weighted_val
-                weight_total += weights[int(values[v])]
+                if voxel_biasing:
+                    weight_total += weight_distrib[v] * np.power(voxel_weights[v], 0.5)
+                else:
+                    weight_total += weight_distrib[v]
             if weight_option == 0:
                 biased_window_centroid = sum_scaled / d
             else:
@@ -430,18 +547,28 @@ class AutoThresholder:
                     #print("Range of weights", weights)
                     weight_total = 1
                 biased_window_centroid = sum_scaled / weight_total
-            centroid_list[d] = biased_window_centroid
-            biased_centroid += biased_window_centroid
             if width_option == 2:
-                window_mass = self._mass_percentage(voxel_weights, d)
+                if voxel_biasing:
+                    window_mass = self._mass_percentage(voxel_weights*weight_distrib, d)
+                else:
+                    window_mass = self._mass_percentage(weight_distrib, d)
                 window_width_weight += window_mass
+                window_masses[d] = window_mass
+                centroid_list[d] = biased_window_centroid*window_mass
+                biased_centroid += biased_window_centroid*window_mass
             elif width_option == 1:
                 window_width_weight += d / len(values)
+                centroid_list[d] = biased_window_centroid * (d / len(values))
+                biased_centroid += biased_window_centroid * (d / len(values))
             else:
                 window_width_weight = len(values)
+                centroid_list[d] = biased_window_centroid
+                biased_centroid += biased_window_centroid
         #print("Accumulated centroid", biased_centroid)
         #print("Window width weight", window_width_weight)
-        print(centroid_list)
+        print("Centroids:", centroid_list)
+        print("Window masses:", window_masses)
+        print("Window weight", window_width_weight)
         print("Centroid", biased_centroid / window_width_weight)
         return biased_centroid / window_width_weight
 
@@ -502,10 +629,13 @@ class AutoThresholder:
         print("Window width weight", window_width_weight)
         return biased_centroid / window_width_weight
 
-    def _mass_percentage(self, mass, cut_off):
+    def _mass_percentage(self, mass, cut_off, rev=False):
         mass_array = np.array(mass)
         total_mass = mass_array.sum()
-        mass_ratio = mass_array[:cut_off].sum()/total_mass
+        if rev:
+            mass_ratio = mass_array[cut_off:].sum() / total_mass
+        else:
+            mass_ratio = mass_array[:cut_off].sum()/total_mass
         return mass_ratio
 
     def _weighted_intensities(self, values, weights, voxel_weights):
@@ -748,7 +878,86 @@ class AutoThresholder:
 
         return intensities, thresholded
 
+    def _efficient_hysteresis_iterative_pair(self, image, low1, low2):
+        """
+        Same as above but calculates the IHH for two low thresholds at the same time, getting the structure counts and
+        the structure sizes
+        :param image: ndArray
+        :param low1: float
+        :param low2: float
+        """
+        img_max = image.max()
+        thresh_width1 = img_max - low1
+        mask_low1 = image > low1
+        labels_low1, num_labels1 = ndi.label(mask_low1)
+        thresholded1 = [None]*thresh_width1
+        intensities1 = list(range(low1+1, img_max+1))
+        num_range1 = np.arange(num_labels1 + 1)
+        mask_prior1 = True
+        thresh_width2 = img_max - low2
+        mask_low2 = image > low2
+        labels_low2, num_labels2 = ndi.label(mask_low2)
+        thresholded2 = [None] * thresh_width2
+        intensities2 = list(range(low2 + 1, img_max + 1))
+        num_range2 = np.arange(num_labels2 + 1)
+        mask_prior2 = True
+        ind_count1 = [None]*thresh_width1
+        new_struct_sizes1 = [None]*thresh_width1
+        ind_count2 = [None]*thresh_width2
+        new_struct_sizes2 = [None]*thresh_width2
+        ind_count = [ind_count1, ind_count2]
+        new_struct_sizes = [new_struct_sizes1, new_struct_sizes2]
+        lower_low = 0 if len(intensities1) >= len(intensities2) else 1
+        intensities = [intensities1, intensities2]
+        labels_low = [labels_low1, labels_low2]
+        num_range = [num_range1, num_range2]
+        thresholded = [thresholded1, thresholded2]
+        print(lower_low, len(intensities1), len(intensities2))
+        prior_structs = [None, None]
+        print("Checking Greater")
+        def _check_greater(iterate, which_low, prior=True):
+            mask_high = np.greater(image, intensities[which_low][iterate], where=prior)
+            '''io.imshow(np.amax(mask_high, axis=0))
+            plt.show()'''
+            sums = ndi.sum_labels(mask_high, labels_low[which_low], num_range[which_low])
+            connected_to_high = sums > 0
+            threshold = connected_to_high[labels_low[which_low]]
+            label_arr, ind_count[which_low][iterate] = ndi.label(threshold.astype(bool))
+            # nonlocal prior_structs
+            if iterate == 0:
+                prior_structs[which_low] = np.copy(threshold.astype(bool))
+            else:
+                lost_structures = np.logical_xor(threshold.astype(bool), prior_structs[which_low])
+                prior_structs[which_low] = np.copy(threshold.astype(bool))
+                label_new, _unneeded_count = ndi.label(lost_structures)
+                label_names, struct_sizes = np.unique(label_new, return_counts=True)
+                new_struct_sizes[which_low][iterate - 1] = struct_sizes[1:].tolist() if len(struct_sizes) > 1 else []
+                if iterate == len(intensities) - 1:
+                    label_new, _unneeded_count = ndi.label(threshold.astype(bool))
+                    label_names, struct_sizes = np.unique(label_new, return_counts=True)
+                    new_struct_sizes[which_low][iterate] = struct_sizes[1:].tolist() if len(struct_sizes) > 1 else []
+            return int(threshold.astype('uint8').sum()), mask_high
 
+        intensity_range = intensities1 if lower_low == 0 else intensities2
+        range_diff = abs(len(intensities1) - len(intensities2))
+        print(range_diff, len(intensity_range), len(intensities[lower_low]), len(intensities[abs(lower_low-1)]))
+        print("Full range size", len(intensity_range))
+        for i in range(len(intensity_range)):
+            print("On intensity", i, " of", len(intensity_range))
+            if i >= range_diff:
+                other = 1 if lower_low == 0 else 0
+                i_sum, mask_prior1 = _check_greater(i - range_diff, other, mask_prior1)
+                thresholded[other][i - range_diff] = i_sum
+            i_sum, mask_prior2 = _check_greater(i, lower_low, mask_prior2)
+            thresholded[lower_low][i] = i_sum
+        thresholded1 = thresholded[0]
+        thresholded2 = thresholded[1]
+        thresholded1.reverse()
+        intensities1.reverse()
+        thresholded2.reverse()
+        intensities2.reverse()
+        print("Double checking", len(thresholded1), len(thresholded2), lower_low)
+        return [intensities1, thresholded1, ind_count1, new_struct_sizes1], [intensities2, thresholded2, ind_count2, new_struct_sizes2]
 
     def _efficient_hysteresis_iterative_time(self, image, low, mem_max=2, use_prior=True):
         img_max = image.max()
