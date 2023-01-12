@@ -2689,8 +2689,24 @@ class thresholding_metrics(AutoThresholder):
         for f in self.file_list:
             print("Sample", f[1])
             sample_information = ihh_information[f[1]]
+            sample_information['x'].reverse()
+            sample_information['y'].reverse()
             slopes, slope_points = self._get_slope(sample_information['x'], sample_information['y'])
             mving_slopes = self._moving_average(slopes, window_size=8)
+            '''if f[1] == "CCCP_2C=0T=0.tif":
+                print("Original Grads")
+                print(slopes)
+                print(slope_points)
+                sns.lineplot(x=np.linspace(start=0, stop=len(slopes), num=len(slopes)), y=slopes)
+                plt.show()
+                average_test = self.moving_average_test(slopes, 8)
+                print("Testing rolling average")
+                print(average_test)
+                fig1, (a1, a2) = plt.subplots(2)
+                plt.tight_layout()
+                sns.lineplot(x=slope_points, y=mving_slopes, ax=a1)
+                sns.lineplot(x=slope_points, y=average_test, ax=a2)
+                plt.show()'''
             inverted_values, some_dict = self._invert_rescaler(mving_slopes)
             fig, (ax1, ax2, ax3, ax4) = plt.subplots(4)
             plt.tight_layout()
@@ -2703,19 +2719,45 @@ class thresholding_metrics(AutoThresholder):
             sns.lineplot(x=slope_points, y=inverted_values, ax=ax4)
             ax4.set_title("Inverted Gradient Distribution")
             plt.show()
+            sns.lineplot(x=sample_information['x'], y=sample_information['y'])
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Non-zero Voxel Count")
+            plt.show()
+            '''sns.lineplot(x=slope_points, y=np.array(slopes)/max(slopes))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Gradient")
+            plt.show()'''
+            sns.lineplot(x=slope_points, y=np.array(mving_slopes)/max(mving_slopes))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Gradient")
+            plt.show()
+            '''sns.lineplot(x=slope_points, y=np.array(inverted_values)/max(inverted_values))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverse Gradient")
+            plt.show()'''
             sns.lineplot(x=slope_points, y=np.array(inverted_values)*np.array(sample_information['y'])[:-1])
             plt.show()
             integral_test = np.trapz(y=np.array(inverted_values) * np.array(slope_points))/np.trapz(np.array(inverted_values))
+            bad_centre = np.trapz(y=np.array(inverted_values) * np.array(slope_points))/len(inverted_values)
             ihh_array = np.array(sample_information['y'])[:-1]
             normed_ihh = ihh_array/ihh_array.max()
+            invert_centr = self._inverted_thresholding(slopes, ihh_array, 2) + slope_points[0]
             integral_test_2 = np.trapz(y=normed_ihh*np.array(inverted_values) * np.array(slope_points)) / np.trapz(
                 np.array(inverted_values))
-            print("Centroid by integration", integral_test+slope_points[-1], integral_test_2+slope_points[-1])
+            print("Centroid by integration", integral_test+slope_points[0], integral_test_2+slope_points[0])
+            print("Bad Centroid", bad_centre)
+            print("Window Centroid", invert_centr)
             sns.lineplot(x=slope_points, y=inverted_values)
-            plt.axvline(x=integral_test+slope_points[-1], c='k')
+            plt.axvline(x=integral_test+slope_points[0], c='k')
+            plt.axvline(x=bad_centre + slope_points[0], c='r')
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverse Gradient")
             plt.show()
             sns.lineplot(x=slope_points, y=np.array(inverted_values)*np.array(sample_information['y'])[:-1])
-            plt.axvline(x=integral_test_2 + slope_points[-1], c='k')
+            plt.axvline(x=integral_test_2 + slope_points[0], c='k')
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverse Gradient")
+            # plt.axvline(x=invert_centr, c='r')
             plt.show()
 
     def compare_expert_with_failing(self):
@@ -2785,10 +2827,150 @@ class thresholding_metrics(AutoThresholder):
                                                "Str_Counts": auto_details[2], "Str_Sizes": auto_details[3]}
             with open(save_path + "many_metrics.json", 'w') as j:
                 json.dump(data_dictionary, j)
+
+    def moving_average_test(self, dist, window_size):
+        offset = int(window_size / 2)
+        odd_window = int(window_size % 2 != 0) #This odd window offset will include an extra right side value
+        padding = [0] * offset
+        windows = np.zeros(shape=tuple([len(dist), window_size]))
+        dist = padding + dist + padding
+        dist = np.array(dist)
+        for n in range(offset, len(dist) - offset):
+            beginning = n-offset
+            ending = n+offset+odd_window
+            windows[n-offset] = dist[beginning:ending]
+        print(windows)
+        window_averages = np.mean(windows, axis=1)
+        return window_averages
+
+    def highlight_flatter_regions(self):
+        ihh_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\sample_ihh_values.json"
+        #print(plt.get_cmap("coolwarm"))
+        #print(plt.get_cmap("viridis").colors)
+        viridis = plt.get_cmap("viridis").colors
+        viridis.reverse()
+        '''cw = plt.cm.coolwarm
+        colour_segments = cw._segmentdata
+        sns_colors = sns.color_palette("viridis")
+        print(len(sns_colors))
+        for rgb_, values in colour_segments.items():
+            print("Colour", rgb_, "Variations", values)'''
+        # viridis.reverse()
+        with open(ihh_path, "r") as j:
+            ihh_data = json.load(j)
+        for sample, sample_ihh in ihh_data.items():
+            print("Sample:", sample)
+            voxel_counts = sample_ihh["y"]
+            intensity_range = sample_ihh["x"]
+            slopes, slope_points = self._get_slope(intensity_range, voxel_counts)
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            inverted_values, some_dict = self._invert_rescaler(mving_slopes)
+            norm_smoothed = (np.array(mving_slopes)/max(mving_slopes)).tolist()
+            # Now to average these inverted gradients across the range. The first item will be between 0 and nothing
+            associated_change = [None]*len(voxel_counts)
+            print(len(inverted_values), len(voxel_counts))
+            for g in range(len(voxel_counts)):
+                if g == len(voxel_counts) - 1:
+                    intermediate_change = norm_smoothed[g - 1]
+                elif g > 0:
+                    intermediate_change = (norm_smoothed[g] + norm_smoothed[g - 1]) / 2
+                else:
+                    intermediate_change = norm_smoothed[g]
+                associated_change[g] = intermediate_change
+            '''fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+            fig.suptitle(sample)
+            sns.lineplot(x=intensity_range, y=voxel_counts, ax=ax1)
+            ax1.set_title("Voxel Counts")
+            sns.lineplot(x=intensity_range, y=associated_change, ax=ax2)
+            ax2.set_title("Change associated to thresholds")
+            sns.lineplot(x=slope_points, y=inverted_values, ax=ax3)
+            ax3.set_title("Inverted Gradient Distribution")
+            plt.show()'''
+            ratio = max(voxel_counts) * 0.01
+            print("Highlight width", ratio)
+            associated_change = np.array(associated_change)
+            '''associated_change *= 0.8
+            associated_change += 0.2'''
+            sns.lineplot(x=intensity_range, y=voxel_counts, c='k')
+            for t in range(len(intensity_range)-1):
+                colour_index = associated_change[t]*255
+                colour_ = viridis[int(colour_index)]
+                alpha = 0.95 + 0.05 * (colour_index - int(colour_index))
+                #alpha = 1
+                plt.fill_between(np.array(intensity_range)[t:t+2], np.array(voxel_counts)[t:t+2]+ratio,
+                                 np.array(voxel_counts)[t:t+2]-ratio, color=colour_, alpha=alpha)
+            norm = plt.cm.colors.Normalize(0, 1)
+            plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("viridis")), label="Localized Gradient")
+            plt.ylabel("Non-zero Voxel Count")
+            plt.xlabel("High Thresholds")
+            plt.show()
+
+    def get_border_mip(self):
+        image_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"
+        sample_name = "CCCP_2C=0T=0.tif"
+        z = 4
+        sample_image = io.imread(image_path + sample_name)
+        mip_original = np.amax(sample_image, axis=0)
+        original_with_zero = (sample_image > 12)
+        low_thresh = 23
+        high_thresh = 45
+        threshold_sample = self._threshold_image(sample_image, low_thresh, high_thresh)[z]
+        without_low = (sample_image > low_thresh)[z]
+        threshold_exlusion = np.logical_xor(threshold_sample, without_low).astype('uint8')
+        '''fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        ax2.imshow(threshold_sample.astype('uint8')*sample_image[2])
+        ax1.imshow(without_low.astype('uint8')*sample_image[2])
+        overlay = np.stack([threshold_sample.astype('uint8')*sample_image[2], threshold_exlusion*sample_image[2], np.zeros_like(threshold_exlusion)], axis=-1)
+        ax3.imshow(overlay*255)
+        plt.show()'''
+        low_thresholding_special = self._threshold_image(sample_image, 13, high_thresh)[z]
+        low_thresholding_special = np.logical_xor(np.logical_or(low_thresholding_special, without_low), without_low)
+        #low_thresholding_special = np.logical_xor(low_thresholding_special, threshold_sample).astype('uint8')
+        io.imshow(np.stack([threshold_sample.astype('uint8'), threshold_exlusion, low_thresholding_special], axis=-1)*255)
+        plt.show()
+        grayscale = threshold_sample.astype('uint8')*255 + threshold_exlusion*155 + low_thresholding_special*25
+        io.imshow(grayscale, cmap='gray')
+        '''grey_range = plt.cm.get_cmap("binary")
+        grey_range.reversed()'''
+        # io.imshow(np.stack([grayscale, grayscale, grayscale], axis=-1))
+        plt.show()
+
+    def generate_ihh_colour_rep(self):
+        for f in self.file_list:
+            image = self._grayscale(io.imread(f[0]))
+            lw_thrsh = self._low_select(img=image)[0]
+            mask_low = image > lw_thrsh
+            labels_low, num_labels = ndi.label(mask_low)
+            valid_structures = np.stack([labels_low, image*(mask_low.astype('int'))], axis=-1) # The two labels have been stacked
+            valid_structures = np.reshape(valid_structures, (-1, valid_structures.shape[-1])) # The dual label image has been flattened save for the label pairs
+            #valid_structures = valid_structures[np.nonzero(valid_structures[:, 0])] # The zero label structs have been removed
+            sort_indices = np.argsort(valid_structures[:, 0])
+            valid_structures = valid_structures[sort_indices]
+            label_set, start_index, label_count = np.unique(valid_structures[:, 0], return_index=True, return_counts=True)
+            end_index = start_index + label_count
+            max_labels = np.zeros(tuple([len(label_set), 2]))
+            canvas_image = np.zeros_like(labels_low)
+            for t in range(len(label_set)):
+                max_labels[t, 0] = label_set[t]
+                max_labels[t, 1] = valid_structures[slice(start_index[t], end_index[t]), 1].max()
+                # canvas_image += (labels_low == label_set[t]).astype('int') * valid_structures[slice(start_index[t], end_index[t]), 1].max()
+            value_mapping = max_labels[:, 1]
+            canvas_image = value_mapping[labels_low]
+            io.imshow(np.amax(canvas_image, axis=0))
+            plt.show()
+            # Use slice(start_index, end_index) but will need to be looped
+            '''invalid_pairs = np.logical_not(np.any(reordered == 0, axis=-1))
+            pairings, pairing_sizes = np.unique(reordered[invalid_pairs], return_counts=True, axis=0)'''
+
+
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.generate_two_ihh_and_struct_metrics()
+    system_analyst.generate_ihh_colour_rep()
+    # In the "many_metrics" json file the intensities and the voxel counts (Thresholds) are reverse
+    # system_analyst.get_border_mip()
+    # system_analyst.highlight_flatter_regions()
+    # system_analyst.generate_two_ihh_and_struct_metrics()
     # system_analyst.compare_expert_with_failing()
     # system_analyst.gradient_represents()
     # system_analyst.show_low_thresholds()
