@@ -2937,8 +2937,11 @@ class thresholding_metrics(AutoThresholder):
 
     def generate_ihh_colour_rep(self):
         for f in self.file_list:
+            print("Sample", f[1])
             image = self._grayscale(io.imread(f[0]))
             lw_thrsh = self._low_select(img=image)[0]
+            print("Low Threshold", lw_thrsh)
+            print("Intensity Range", list(range(lw_thrsh+1, image.max()+1)))
             mask_low = image > lw_thrsh
             labels_low, num_labels = ndi.label(mask_low)
             valid_structures = np.stack([labels_low, image*(mask_low.astype('int'))], axis=-1) # The two labels have been stacked
@@ -2956,17 +2959,150 @@ class thresholding_metrics(AutoThresholder):
                 # canvas_image += (labels_low == label_set[t]).astype('int') * valid_structures[slice(start_index[t], end_index[t]), 1].max()
             value_mapping = max_labels[:, 1]
             canvas_image = value_mapping[labels_low]
-            io.imshow(np.amax(canvas_image, axis=0))
+            def build_ihh():
+                intensities, voxel_count = np.unique(canvas_image, return_counts=True)
+                intensities, voxel_count = intensities[1:], voxel_count[1:]
+                intense_range = int(intensities[-1]-intensities[0]+2)
+                all_intense_voxels = np.zeros(tuple([intense_range]))
+                indexing_arr = (intensities - intensities[0]).astype(int)
+                all_intense_voxels[indexing_arr] = voxel_count
+                all_intense_voxels = all_intense_voxels[1:]
+                voxel_accum = np.flip(np.cumsum(np.flip(all_intense_voxels)))
+                intensities = np.linspace(intensities[0], intensities[-1], int(intensities[-1] - intensities[0] + 1))
+                return intensities, voxel_accum
+            x_val, y_val = build_ihh()
+            sns.lineplot(x=x_val, y=y_val)
             plt.show()
+
             # Use slice(start_index, end_index) but will need to be looped
             '''invalid_pairs = np.logical_not(np.any(reordered == 0, axis=-1))
             pairings, pairing_sizes = np.unique(reordered[invalid_pairs], return_counts=True, axis=0)'''
 
 
+    def new_figures(self):
+        '''
+        - Inverted grad with black dashed line for centroid (bad centroid) *
+        - Same as above but red dashed-dotted line for better centroid *
+        - Inverted grad with no bias, window bias (option 0), IHH bias, and both bias. Vertical dashed line for centroid
+        - Inverted grad with black dashed line for no window bias and red dash dotted line for window bias.
+        - Inverted grad with different coloured boxes with height differences for each window (a subset of windows) and
+        a vertical line for each centroid
+        - a distribution of window centroids (y-axis) by window widths (x-axis)
+        - black and red vertical lines for centroid without and with window bias. Show for centroid distribution vs
+         window width for each sample (2 samples)
+         - centroid for inverted grad, centroid for ihh, overlay of these two with a combined centroid
+         - sample with IHH overlaid and bias applied with annotated centroid. Have normal ihh bias and softened bias
+         (2 samples)
+        :return:
+        '''
+
+        json_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\sample_ihh_values.json"
+        with open(json_path, "r") as j:
+            ihh_information = json.load(j)
+        for f in self.file_list:
+            print("Sample", f[1])
+            sample_information = ihh_information[f[1]]
+            sample_information['x'].reverse()
+            sample_information['y'].reverse()
+            slopes, slope_points = self._get_slope(sample_information['x'], sample_information['y'])
+            low_thresh = slope_points[0] - 1
+            print("Low Thresh", low_thresh)
+            mving_slopes = self._moving_average(slopes, window_size=8)
+            inverted_values, some_dict = self._invert_rescaler(mving_slopes)
+            bad_centre = np.trapz(y=np.array(inverted_values) * np.array(slope_points)) / len(inverted_values)
+            correct_centroid = np.trapz(y=np.array(inverted_values) * np.array(slope_points)) / np.trapz(
+                np.array(inverted_values))
+            manual_test_num = []
+            manual_test_den = []
+            for r in range(0, len(inverted_values)):
+                manual_test_num.append(inverted_values[r]*slope_points[r])
+                manual_test_den.append(inverted_values[r])
+            ihh_array = np.array(sample_information['y'])[:-1]
+            normed_ihh = ihh_array / ihh_array.max()
+            only_ihh = np.trapz(y=normed_ihh * np.array(inverted_values) * np.array(slope_points)) / np.trapz(
+                np.array(inverted_values))
+            no_ihh = np.ones_like(ihh_array)
+            window_only = self._inverted_thresholding(mving_slopes, no_ihh, 1, 0) + low_thresh
+            both_bias = self._inverted_thresholding(mving_slopes, ihh_array, 1, 0) + low_thresh
+            print("Inverted value with window only", window_only)
+            # Inverted with just bad centroid
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
+            plt.show()
+            # correct centroid
+            sns.lineplot(x=slope_points, y=inverted_values)
+            #plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
+            plt.axvline(x=correct_centroid, c='r', dashes=(6, 2, 2, 2))
+            plt.show()
+            # both centroids
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
+            plt.axvline(x=correct_centroid, c='r', dashes=(6, 2, 2, 2))
+            plt.show()
+            # window centroid
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=window_only, c='k', dashes=(5, 2, 5, 2))
+            plt.show()
+            # ihh only
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=only_ihh, c='k', dashes=(5, 2, 5, 2))
+            plt.show()
+            # both bias
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=both_bias, c='k', dashes=(5, 2, 5, 2))
+            plt.show()
+            # with and without window
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
+            plt.axvline(x=window_only, c='r', dashes=(6, 2, 2, 2))
+            plt.show()
+            # window data
+            consolidated_centroid, window_centroids = self._inverted_thresholding_with_windows(mving_slopes, no_ihh, 1, 0)
+            consolidated_centroid = consolidated_centroid + low_thresh
+            window_sizes = np.array(list(window_centroids.keys()))
+            window_centr = np.array(list(window_centroids.values())) + low_thresh
+            sns.lineplot(x=window_sizes, y=window_centr)
+            plt.show()
+            # ihh centroid (not bias)
+            ihh_centre = np.trapz(y=normed_ihh * np.array(slope_points)) / np.trapz(
+                np.array(normed_ihh))
+            sns.lineplot(x=slope_points, y=normed_ihh)
+            plt.axvline(x=ihh_centre, c='k', dashes=(5, 2, 5, 2))
+            plt.show()
+            # both bias with overlaid distribution
+            sns.lineplot(x=slope_points, y=inverted_values)
+            sns.lineplot(x=slope_points, y=normed_ihh)
+            plt.axvline(x=both_bias, c='k', dashes=(5, 2, 5, 2))
+            plt.show()
+            # normal and softened ihh bias
+            print("softened ihh")
+            softened_ihh_array = normed_ihh*normed_ihh
+            softened_ihh_array = softened_ihh_array / softened_ihh_array.max()
+            #print(normed_ihh)
+            print(softened_ihh_array)
+            softened_ihh = np.trapz(y=softened_ihh_array * np.array(inverted_values) * np.array(slope_points)) / np.trapz(
+                np.array(inverted_values))
+            sns.lineplot(x=slope_points, y=inverted_values)
+            plt.show()
+            sns.lineplot(x=slope_points, y=softened_ihh)
+            plt.show()
+            sns.lineplot(x=slope_points, y=inverted_values)
+            sns.lineplot(x=slope_points, y=softened_ihh)
+            plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
+            plt.axvline(x=softened_ihh, c='r', dashes=(6, 2, 2, 2))
+            plt.show()
+            sns.lineplot(x=slope_points, y=inverted_values)
+            sns.lineplot(x=slope_points, y=normed_ihh)
+            plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
+            plt.axvline(x=only_ihh, c='r', dashes=(6, 2, 2, 2))
+            plt.show()
+
+
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.generate_ihh_colour_rep()
+    system_analyst.new_figures()
+    # system_analyst.generate_ihh_colour_rep()
     # In the "many_metrics" json file the intensities and the voxel counts (Thresholds) are reverse
     # system_analyst.get_border_mip()
     # system_analyst.highlight_flatter_regions()
