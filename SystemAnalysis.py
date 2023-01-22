@@ -2979,7 +2979,7 @@ class thresholding_metrics(AutoThresholder):
             pairings, pairing_sizes = np.unique(reordered[invalid_pairs], return_counts=True, axis=0)'''
 
 
-    def new_figures(self):
+    def new_figures(self, sample_name=None):
         '''
         - Inverted grad with black dashed line for centroid (bad centroid) *
         - Same as above but red dashed-dotted line for better centroid *
@@ -2990,18 +2990,24 @@ class thresholding_metrics(AutoThresholder):
         - a distribution of window centroids (y-axis) by window widths (x-axis)
         - black and red vertical lines for centroid without and with window bias. Show for centroid distribution vs
          window width for each sample (2 samples)
-         - centroid for inverted grad, centroid for ihh, overlay of these two with a combined centroid
-         - sample with IHH overlaid and bias applied with annotated centroid. Have normal ihh bias and softened bias
-         (2 samples)
+        - centroid for inverted grad, centroid for ihh, overlay of these two with a combined centroid
+        - sample with IHH overlaid and bias applied with annotated centroid. Have normal ihh bias and softened bias
+        (2 samples)
+        - mip of sample at specific high thresholds to annotate onto the point to show what the difference is. Show
+        intensity representation and then the overlaid must be binary of each color e.g red and blue (perhaps some kind
+        of hatching could be used for differentiation.
+        - an overlay of layers representing a range of 4 high threshold steps (above and below) to show the impact of
+        the smoothing taking further context into account.
         :return:
         '''
 
         json_path = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\IHH_Series\\sample_ihh_values.json"
         with open(json_path, "r") as j:
             ihh_information = json.load(j)
-        for f in self.file_list:
-            print("Sample", f[1])
-            sample_information = ihh_information[f[1]]
+
+        def graph_sample(sample_file):
+            print("Sample", sample_file[1])
+            sample_information = ihh_information[sample_file[1]]
             sample_information['x'].reverse()
             sample_information['y'].reverse()
             slopes, slope_points = self._get_slope(sample_information['x'], sample_information['y'])
@@ -3024,6 +3030,12 @@ class thresholding_metrics(AutoThresholder):
             no_ihh = np.ones_like(ihh_array)
             window_only = self._inverted_thresholding(mving_slopes, no_ihh, 1, 0) + low_thresh
             both_bias = self._inverted_thresholding(mving_slopes, ihh_array, 1, 0) + low_thresh
+            sns.lineplot(x=sample_information['x'], y=sample_information['y'])
+            plt.show()
+            fig, (ax1, ax2) = plt.subplots(2, 1)
+            sns.lineplot(x=slope_points, y=slopes, ax=ax1)
+            sns.lineplot(x=slope_points, y=mving_slopes, ax=ax2)
+            plt.show()
             print("Inverted value with window only", window_only)
             # Inverted with just bad centroid
             sns.lineplot(x=slope_points, y=inverted_values)
@@ -3076,18 +3088,13 @@ class thresholding_metrics(AutoThresholder):
             plt.show()
             # normal and softened ihh bias
             print("softened ihh")
-            softened_ihh_array = normed_ihh*normed_ihh
+            softened_ihh_array = np.sqrt(normed_ihh)
             softened_ihh_array = softened_ihh_array / softened_ihh_array.max()
-            #print(normed_ihh)
-            print(softened_ihh_array)
             softened_ihh = np.trapz(y=softened_ihh_array * np.array(inverted_values) * np.array(slope_points)) / np.trapz(
                 np.array(inverted_values))
+            print(softened_ihh)
             sns.lineplot(x=slope_points, y=inverted_values)
-            plt.show()
-            sns.lineplot(x=slope_points, y=softened_ihh)
-            plt.show()
-            sns.lineplot(x=slope_points, y=inverted_values)
-            sns.lineplot(x=slope_points, y=softened_ihh)
+            sns.lineplot(x=slope_points, y=softened_ihh_array)
             plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=softened_ihh, c='r', dashes=(6, 2, 2, 2))
             plt.show()
@@ -3096,12 +3103,49 @@ class thresholding_metrics(AutoThresholder):
             plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=only_ihh, c='r', dashes=(6, 2, 2, 2))
             plt.show()
+            def get_sample_ihh_points(high_thresholds):
+                raw_image = io.imread(sample_file[0])
+                image_canvas = np.zeros_like(raw_image)
+                for ht in high_thresholds:
+                    binary_rep = self._threshold_image(raw_image, low_thresh, ht).astype('uint8')
+                    image_canvas += binary_rep
+                flattened_rep = np.amax(image_canvas, axis=0)
+                maximum_count = flattened_rep.max()
+                io.imshow(flattened_rep)
+                plt.show()
+            get_sample_ihh_points([33, 51, 107])
+
+            def get_grad_discrete(high_thresh_range):
+                raw_image = io.imread(sample_file[0])
+                image_canvas = []
+                for ht in range(high_thresh_range[0], high_thresh_range[1]):
+                    thresh1 = self._threshold_image(raw_image, low_thresh, ht-1).astype('uint8')
+                    thresh2 = self._threshold_image(raw_image, low_thresh, ht).astype('uint8')
+                    overlay = np.amax(thresh1 + thresh2, axis=0)
+                    image_canvas.append(overlay)
+                panels = len(image_canvas)
+                rows = math.ceil(panels/2)
+                fig, axs = plt.subplots(rows, 2)
+                fig.tight_layout()
+                for t in range(panels):
+                    row_index = int(t/2)
+                    col_index = t - row_index*2
+                    axs[row_index, col_index].imshow(image_canvas[t])
+                plt.show()
+
+            get_grad_discrete([186, 192])
+
+        if sample_name is None:
+            for f in self.file_list:
+                graph_sample(sample_file=f)
+        else:
+            graph_sample(sample_file=[self.image_paths[sample_name], sample_name])
 
 
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.new_figures()
+    system_analyst.new_figures("CCCP_1C=1T=0.tif")
     # system_analyst.generate_ihh_colour_rep()
     # In the "many_metrics" json file the intensities and the voxel counts (Thresholds) are reverse
     # system_analyst.get_border_mip()
