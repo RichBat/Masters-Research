@@ -3030,61 +3030,96 @@ class thresholding_metrics(AutoThresholder):
             no_ihh = np.ones_like(ihh_array)
             window_only = self._inverted_thresholding(mving_slopes, no_ihh, 1, 0) + low_thresh
             both_bias = self._inverted_thresholding(mving_slopes, ihh_array, 1, 0) + low_thresh
-            sns.lineplot(x=sample_information['x'], y=sample_information['y'])
+            '''sns.lineplot(x=sample_information['x'], y=sample_information['y'])
             plt.show()
             fig, (ax1, ax2) = plt.subplots(2, 1)
             sns.lineplot(x=slope_points, y=slopes, ax=ax1)
             sns.lineplot(x=slope_points, y=mving_slopes, ax=ax2)
-            plt.show()
+            plt.show()'''
             print("Inverted value with window only", window_only)
             # Inverted with just bad centroid
+            print("Bad centroid Inverted")
             sns.lineplot(x=slope_points, y=inverted_values)
             plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.show()
             # correct centroid
+            print("Correct Centroid")
             sns.lineplot(x=slope_points, y=inverted_values)
             #plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=correct_centroid, c='r', dashes=(6, 2, 2, 2))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.show()
             # both centroids
+            print("Good and Bad Centroids")
             sns.lineplot(x=slope_points, y=inverted_values)
             plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=correct_centroid, c='r', dashes=(6, 2, 2, 2))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.show()
             # window centroid
+            print("Window Bias only")
             sns.lineplot(x=slope_points, y=inverted_values)
             plt.axvline(x=window_only, c='k', dashes=(5, 2, 5, 2))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.show()
             # ihh only
+            print("IHH Bias Only")
             sns.lineplot(x=slope_points, y=inverted_values)
             plt.axvline(x=only_ihh, c='k', dashes=(5, 2, 5, 2))
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.show()
             # both bias
+            print("IHH and Window Applied")
             sns.lineplot(x=slope_points, y=inverted_values)
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.axvline(x=both_bias, c='k', dashes=(5, 2, 5, 2))
             plt.show()
             # with and without window
+            print("With and without window overlaid")
             sns.lineplot(x=slope_points, y=inverted_values)
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Inverted Non-zero Voxel Count Change")
             plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=window_only, c='r', dashes=(6, 2, 2, 2))
             plt.show()
             # window data
             consolidated_centroid, window_centroids = self._inverted_thresholding_with_windows(mving_slopes, no_ihh, 1, 0)
             consolidated_centroid = consolidated_centroid + low_thresh
+            print("The window centroids over window sizes")
             window_sizes = np.array(list(window_centroids.keys()))
             window_centr = np.array(list(window_centroids.values())) + low_thresh
             sns.lineplot(x=window_sizes, y=window_centr)
+            plt.xlabel("Window Width")
+            plt.ylabel("Centre of Mass Value")
             plt.show()
             # ihh centroid (not bias)
             ihh_centre = np.trapz(y=normed_ihh * np.array(slope_points)) / np.trapz(
                 np.array(normed_ihh))
+            print("Norm IHH Centroid")
             sns.lineplot(x=slope_points, y=normed_ihh)
+            plt.xlabel("High Threshold Intensities")
+            plt.ylabel("Normalized Non-zero Voxel Count")
             plt.axvline(x=ihh_centre, c='k', dashes=(5, 2, 5, 2))
             plt.show()
             # both bias with overlaid distribution
-            sns.lineplot(x=slope_points, y=inverted_values)
-            sns.lineplot(x=slope_points, y=normed_ihh)
+            print("Overlaid with colours")
+            colours = sns.color_palette()
+            print(type(colours))
+            fig, ax1 = plt.subplots()
+            ax2 = ax1.twinx()
+            sns.lineplot(x=slope_points, y=inverted_values, ax=ax1, color=colours[0])
+            sns.lineplot(x=slope_points, y=normed_ihh, ax=ax2, color=colours[1])
             plt.axvline(x=both_bias, c='k', dashes=(5, 2, 5, 2))
+            ax1.set_xlabel("High Threshold Intensities")
+            ax1.set_ylabel("Inverted Non-zero Voxel Count Change", color=colours[0])
+            ax2.set_ylabel("Normalized Non-zero Voxel Count", color=colours[1])
             plt.show()
             # normal and softened ihh bias
             print("softened ihh")
@@ -3092,17 +3127,38 @@ class thresholding_metrics(AutoThresholder):
             softened_ihh_array = softened_ihh_array / softened_ihh_array.max()
             softened_ihh = np.trapz(y=softened_ihh_array * np.array(inverted_values) * np.array(slope_points)) / np.trapz(
                 np.array(inverted_values))
-            print(softened_ihh)
-            sns.lineplot(x=slope_points, y=inverted_values)
-            sns.lineplot(x=slope_points, y=softened_ihh_array)
+            fig, ax1 = plt.subplots()
+            ax2 = ax1.twinx()
+            sns.lineplot(x=slope_points, y=inverted_values, color=colours[0], ax=ax1)
+            sns.lineplot(x=slope_points, y=softened_ihh_array, color=colours[1], ax=ax2)
+            ax1.set_xlabel("High Threshold Intensities")
+            ax1.set_ylabel("Inverted Non-zero Voxel Count Change", color=colours[0])
+            ax2.set_ylabel("Normalized Non-zero Voxel Count", color=colours[1])
             plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=softened_ihh, c='r', dashes=(6, 2, 2, 2))
             plt.show()
-            sns.lineplot(x=slope_points, y=inverted_values)
-            sns.lineplot(x=slope_points, y=normed_ihh)
+            print("Normal IHH")
+            fig, ax1 = plt.subplots()
+            ax2 = ax1.twinx()
+            sns.lineplot(x=slope_points, y=inverted_values, color=colours[0], ax=ax1)
+            sns.lineplot(x=slope_points, y=normed_ihh,  color=colours[1], ax=ax2)
             plt.axvline(x=correct_centroid, c='k', dashes=(5, 2, 5, 2))
             plt.axvline(x=only_ihh, c='r', dashes=(6, 2, 2, 2))
+            ax1.set_xlabel("High Threshold Intensities")
+            ax1.set_ylabel("Inverted Non-zero Voxel Count Change", color=colours[0])
+            ax2.set_ylabel("Normalized Non-zero Voxel Count", color=colours[1])
             plt.show()
+
+            def get_im_at_intensities(thresh_intensities):
+                raw_image = io.imread(sample_file[0])
+                for ht in thresh_intensities:
+                    binary_rep = self._threshold_image(raw_image, low_thresh, ht).astype('uint8')
+                    print("Image at", ht)
+                    io.imshow(np.amax(binary_rep*raw_image, axis=0))
+                    plt.show()
+
+            get_im_at_intensities([56, 84, 140, 180, 212, 250])
+
             def get_sample_ihh_points(high_thresholds):
                 raw_image = io.imread(sample_file[0])
                 image_canvas = np.zeros_like(raw_image)
@@ -3110,7 +3166,6 @@ class thresholding_metrics(AutoThresholder):
                     binary_rep = self._threshold_image(raw_image, low_thresh, ht).astype('uint8')
                     image_canvas += binary_rep
                 flattened_rep = np.amax(image_canvas, axis=0)
-                maximum_count = flattened_rep.max()
                 io.imshow(flattened_rep)
                 plt.show()
             get_sample_ihh_points([33, 51, 107])
@@ -3123,7 +3178,11 @@ class thresholding_metrics(AutoThresholder):
                     thresh2 = self._threshold_image(raw_image, low_thresh, ht).astype('uint8')
                     overlay = np.amax(thresh1 + thresh2, axis=0)
                     image_canvas.append(overlay)
-                panels = len(image_canvas)
+                for t in range(len(image_canvas)):
+                    print("Threshold", high_thresh_range[0]-1+t, " to", high_thresh_range[0]+t)
+                    io.imshow(image_canvas[t])
+                    plt.show()
+                '''panels = len(image_canvas)
                 rows = math.ceil(panels/2)
                 fig, axs = plt.subplots(rows, 2)
                 fig.tight_layout()
@@ -3131,9 +3190,11 @@ class thresholding_metrics(AutoThresholder):
                     row_index = int(t/2)
                     col_index = t - row_index*2
                     axs[row_index, col_index].imshow(image_canvas[t])
-                plt.show()
+                plt.show()'''
 
             get_grad_discrete([186, 192])
+
+
 
         if sample_name is None:
             for f in self.file_list:
