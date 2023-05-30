@@ -160,6 +160,15 @@ class AutoThresholder:
                 counter += 1
 
     def _specific_thresholds(self, image, excluded_type, thresh_options, steepness=6, power=1):
+        '''
+        This function is used for thresholding specific images instead of the whole set
+        :param image:
+        :param excluded_type:
+        :param thresh_options:
+        :param steepness:
+        :param power:
+        :return:
+        '''
         low_thresh, valid_low = self._low_select(image)
         if valid_low:
             intens, voxels = self._efficient_hysteresis_iterative(image, low_thresh)
@@ -209,7 +218,8 @@ class AutoThresholder:
             counts = new_list + counts + new_list
             adjusted = True
         df = pd.DataFrame(counts)
-        moving_average = df.rolling(window_size, center=True).mean()
+        moving_average = df.rolling(window_size, center=True)
+        moving_average = moving_average.mean()
         average_results = self._flatten_list(iter(moving_average.values.tolist()))
         if adjusted:
             window_offset = int(window_size / 2)
@@ -367,7 +377,7 @@ class AutoThresholder:
             logist_centroid = self._weighted_intensity_centroid_eff(slopes[logist_knee:], logist, vox_weight[logist_knee:], 0)
         return logist_centroid
 
-    def _inverted_thresholding(self, slopes, voxels, weighted_option=0):
+    def _inverted_thresholding(self, slopes, voxels, weighted_option=0, width_option=None):
         vox_max = voxels.max()
         vox_weight = voxels/vox_max
 
@@ -375,8 +385,21 @@ class AutoThresholder:
         invert_weighted = self._apply_weights(invert_rescaled, slopes)
         invert_knee_f = KneeLocator(np.linspace(0, len(invert_weighted), len(invert_weighted)), invert_weighted, S=0.1, curve="convex", direction="decreasing")
         invert_knee = int(invert_knee_f.knee)
-        inverted_centroid = self._weighted_intensity_centroid(slopes[invert_knee:], invert_dict, vox_weight[invert_knee:], weighted_option)
+        inverted_centroid = self._weighted_intensity_centroid_eff(slopes, invert_dict, vox_weight, weighted_option,
+                                                                  width_option=width_option)
         return inverted_centroid
+
+    def _inverted_thresholding_with_windows(self, slopes, voxels, weighted_option=0, width_option=None):
+        vox_max = voxels.max()
+        vox_weight = voxels/vox_max
+
+        invert_rescaled, invert_dict = self._invert_rescaler(slopes)
+        invert_weighted = self._apply_weights(invert_rescaled, slopes)
+        invert_knee_f = KneeLocator(np.linspace(0, len(invert_weighted), len(invert_weighted)), invert_weighted, S=0.1, curve="convex", direction="decreasing")
+        invert_knee = int(invert_knee_f.knee)
+        inverted_centroid, window_centroids = self._weighted_intensity_centroid_eff(slopes, invert_dict, vox_weight, weighted_option,
+                                                                  width_option=width_option, return_other=True)
+        return inverted_centroid, window_centroids
 
     def _weighted_intensity_centroid_rev(self, values, weights, voxel_weights, weight_option=0, width_option=None, extra_weighting=None, voxel_biasing=False):
         """
@@ -491,7 +514,8 @@ class AutoThresholder:
         centroid = fully_weighted_distrib.sum()/weight_distrib.sum()
         return centroid
 
-    def _weighted_intensity_centroid_eff(self, values, weights, voxel_weights, weight_option=0, width_option=None, extra_weighting=None, voxel_biasing=False):
+    def _weighted_intensity_centroid_eff(self, values, weights, voxel_weights, weight_option=0, width_option=None,
+                                         extra_weighting=None, voxel_biasing=False, return_other=False):
         """
         This method will apply the weights for each value to the value. Values and voxel_weights must clip [knee:] in argument.
         The weighted window for each intensity should be calculated by applying the normalized voxel weight and the calculated weight.
@@ -570,6 +594,8 @@ class AutoThresholder:
         print("Window masses:", window_masses)
         print("Window weight", window_width_weight)
         print("Centroid", biased_centroid / window_width_weight)
+        if return_other:
+            return (biased_centroid / window_width_weight), centroid_list
         return biased_centroid / window_width_weight
 
     def _weighted_intensity_centroid(self, values, weights, voxel_weights, weight_option=0, width_option=None):
@@ -1343,6 +1369,47 @@ class AutoThresholder:
         label_order, label_counts = np.unique(labels, return_counts=True)
         valid_structs = np.greater(label_counts, smallest_size).astype(int)
         return valid_structs.sum()
+
+    def _ihh_get_best(self, image):
+        '''
+        This is taken from SystemAnalysis. This needs to be adjusted to generate the IHH of an input image
+        and return the intensities plus counts
+        :return:
+        '''
+        image = self._grayscale(image)
+        lw_thrsh = self._low_select(img=image)[0]
+        print("Low Threshold", lw_thrsh)
+        print("Intensity Range", list(range(lw_thrsh+1, image.max()+1)))
+        mask_low = image > lw_thrsh
+        labels_low, num_labels = ndi.label(mask_low)
+        valid_structures = np.stack([labels_low, image*(mask_low.astype('int'))], axis=-1) # The two labels have been stacked
+        valid_structures = np.reshape(valid_structures, (-1, valid_structures.shape[-1])) # The dual label image has been flattened save for the label pairs
+        #valid_structures = valid_structures[np.nonzero(valid_structures[:, 0])] # The zero label structs have been removed
+        sort_indices = np.argsort(valid_structures[:, 0])
+        valid_structures = valid_structures[sort_indices]
+        label_set, start_index, label_count = np.unique(valid_structures[:, 0], return_index=True, return_counts=True)
+        end_index = start_index + label_count
+        max_labels = np.zeros(tuple([len(label_set), 2]))
+        canvas_image = np.zeros_like(labels_low)
+        for t in range(len(label_set)):
+            max_labels[t, 0] = label_set[t]
+            max_labels[t, 1] = valid_structures[slice(start_index[t], end_index[t]), 1].max()
+            # canvas_image += (labels_low == label_set[t]).astype('int') * valid_structures[slice(start_index[t], end_index[t]), 1].max()
+        value_mapping = max_labels[:, 1]
+        canvas_image = value_mapping[labels_low]
+
+        def build_ihh():
+            intensities, voxel_count = np.unique(canvas_image, return_counts=True)
+            intensities, voxel_count = intensities[1:], voxel_count[1:]
+            intense_range = int(intensities[-1]-intensities[0]+2)
+            all_intense_voxels = np.zeros(tuple([intense_range]))
+            indexing_arr = (intensities - intensities[0]).astype(int)
+            all_intense_voxels[indexing_arr] = voxel_count
+            all_intense_voxels = all_intense_voxels[1:]
+            voxel_accum = np.flip(np.cumsum(np.flip(all_intense_voxels)))
+            intensities = np.linspace(intensities[0], intensities[-1], int(intensities[-1] - intensities[0] + 1))
+            return intensities, voxel_accum
+        return lw_thrsh, build_ihh()
 
 if __name__ == "__main__":
     input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]

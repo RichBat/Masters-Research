@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import math
 from skimage.exposure import histogram
 from skimage import data, io
+from skimage.color import rgb2gray
 from skimage.metrics import structural_similarity
 import pandas as pd
 from os import listdir, makedirs
@@ -1842,11 +1843,11 @@ class thresholding_metrics(AutoThresholder):
             intens, thresh2 = self._efficient_hysteresis_iterative_time(image, lw_thrsh, 2.2, True)
             end_time2 = time.process_time()
             print("Time taken for old", end_time1 - start_time1, "for new", end_time2 - start_time2)
-            plt.plot(intens, thresh2)
-            plt.show()
+            # plt.plot(intens, thresh2)
+            # plt.show()
             print("Threshold results")
             # print(thresh1)
-            print(thresh2)
+            # print(thresh2)
             # self.generate_ihh_figures(image, lw_thrsh, f[1], save_location=save_location)
 
     def generate_IHH_plots(self, ihh_sample):
@@ -3039,7 +3040,8 @@ class thresholding_metrics(AutoThresholder):
             print("Inverted value with window only", window_only)
             # Inverted with just bad centroid
             print("Bad centroid Inverted")
-            sns.lineplot(x=slope_points, y=inverted_values)
+            # adjust axis label font size using plt.xlabel("blahblah", fontsize=18)
+            '''sns.lineplot(x=slope_points, y=inverted_values)
             plt.axvline(x=bad_centre, c='k', dashes=(5, 2, 5, 2))
             plt.xlabel("High Threshold Intensities")
             plt.ylabel("Inverted Non-zero Voxel Count Change")
@@ -3147,7 +3149,7 @@ class thresholding_metrics(AutoThresholder):
             ax1.set_xlabel("High Threshold Intensities")
             ax1.set_ylabel("Inverted Non-zero Voxel Count Change", color=colours[0])
             ax2.set_ylabel("Normalized Non-zero Voxel Count", color=colours[1])
-            plt.show()
+            plt.show()'''
 
             def get_im_at_intensities(thresh_intensities):
                 raw_image = io.imread(sample_file[0])
@@ -3202,12 +3204,62 @@ class thresholding_metrics(AutoThresholder):
         else:
             graph_sample(sample_file=[self.image_paths[sample_name], sample_name])
 
+    def presentation_image(self):
+        image_path = self.image_paths["CCCP_2C=0T=0.tif"]
+        image = io.imread(image_path)
+        orig_mip = np.amax(image, axis=0)
+        '''io.imshow(orig_mip)
+        plt.show()'''
+        low_only_mask = (orig_mip <= 25).astype(int)
+        low_only_mip = low_only_mask
+        '''io.imshow(low_only_mip)
+        plt.show()'''
+        low_removed_mip = (orig_mip > 25).astype(int)
+        '''io.imshow(low_removed_mip)
+        plt.show()'''
+        high_only_mip = (orig_mip > 55).astype(int)
+        '''io.imshow(high_only_mip)
+        plt.show()'''
+        thresholded = self._threshold_image(image, 25, 55)
+        thresh_mip = np.amax(thresholded, axis=0)
+        '''io.imshow(thresh_mip)
+        plt.show()'''
+        save_location = "C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Presentation Images\\thresh_examples\\"
+
+        '''io.imsave(save_location + "Orig_mip.png", orig_mip)
+
+        io.imsave(save_location + "below_mask.png", low_only_mip)
+        io.imsave(save_location + "below_mip.png", low_only_mip*orig_mip)
+
+        io.imsave(save_location + "above_low_mask.png", low_removed_mip)
+        io.imsave(save_location + "above_low_mip.png", low_removed_mip*orig_mip)
+
+        io.imsave(save_location + "high_mask.png", high_only_mip)
+        io.imsave(save_location + "high_mip.png", high_only_mip*orig_mip)
+
+        io.imsave(save_location + "thresh_mask.png", thresh_mip)
+        io.imsave(save_location + "thresh_mip.png", thresh_mip*orig_mip)'''
+
+        intens_counts, intens_bins = histogram(image, nbins=256)
+        sns.lineplot(x=intens_bins, y=intens_counts)
+        plt.ylabel("Count of voxels per intensity")
+        plt.xlabel("Intensity Values")
+        plt.title("Histogram")
+        plt.show()
+        intens_counts, intens_bins = histogram(image, nbins=256)
+        sns.lineplot(x=np.log(intens_bins+1), y=np.log(intens_counts+1))
+        plt.ylabel("Count of voxels per intensity")
+        plt.xlabel("Intensity Values")
+        plt.title("Log of Histogram")
+        plt.show()
+
 
 if __name__ == "__main__":
     input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
     system_analyst = thresholding_metrics(input_path)
-    system_analyst.new_figures("CCCP_1C=1T=0.tif")
-    # system_analyst.generate_ihh_colour_rep()
+    # system_analyst.presentation_image()
+    # system_analyst.new_figures("CCCP_1C=1T=0.tif")
+    system_analyst.generate_ihh_colour_rep()
     # In the "many_metrics" json file the intensities and the voxel counts (Thresholds) are reverse
     # system_analyst.get_border_mip()
     # system_analyst.highlight_flatter_regions()
