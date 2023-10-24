@@ -9,7 +9,7 @@ from skimage import data, io
 import pandas as pd
 from os import listdir, makedirs
 from os.path import isfile, join, exists
-from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_li, threshold_yen, threshold_triangle, threshold_mean, gaussian
+from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_li, threshold_yen, threshold_triangle, threshold_mean, gaussian, threshold_minimum
 import tifffile
 from knee_locator import KneeLocator
 import time
@@ -134,7 +134,7 @@ class AutoThresholder:
                 print("Low thresh has been acquired")
                 if valid_low:
                     iterate_start_time = time.process_time()
-                    intens, voxels = self._efficient_hysteresis_iterative(img, low_thresh)
+                    intens, voxels = self._ihh_get_best(img, low_thresh)
                     iterate_end_time = time.process_time()
                     print("Hysteresis Iteration took: " + str(iterate_end_time - iterate_start_time) + "s")
                     print("Cumulative Hysteresis Determined")
@@ -163,15 +163,16 @@ class AutoThresholder:
         '''
         This function is used for thresholding specific images instead of the whole set
         :param image:
-        :param excluded_type:
-        :param thresh_options:
-        :param steepness:
+        :param excluded_type: A list of the excluded types ["Inverted", "Logistic"]
+        :param thresh_options: The high thresh derivation options based on centroids and window means
+        :param steepness: For Logistic only
         :param power:
         :return:
         '''
         low_thresh, valid_low = self._low_select(image)
+        print(low_thresh, valid_low)
         if valid_low:
-            intens, voxels = self._efficient_hysteresis_iterative(image, low_thresh)
+            intens, voxels = self._ihh_get_best(image, low_thresh)
             intens = intens[:-1]
             voxels = voxels[:-1]
             slopes, slope_points = self._get_slope(intens, voxels)
@@ -288,17 +289,37 @@ class AutoThresholder:
         return image
 
     def _low_select(self, img):
+        '''
+        This function selects the low threshold for an image using the Kneedle algorithm.
+        :param img:
+        :return: chosen_knee, valid
+        '''
         normal_knee = self._testing_knee(img, log_hist=False, sensitivity=0.2)
         log_knee = self._testing_knee(img, log_hist=True, sensitivity=0.2)
         otsu_thresh = threshold_otsu(img)
-        # print("Normal Knee:", normal_knee, "Log Knee:", log_knee, "Otsu Thresh:", otsu_thresh)
+        '''print("Normal Knee:", normal_knee, "Log Knee:", log_knee, "Otsu Thresh:", otsu_thresh, "Triangle:", threshold_triangle(img),
+              "Mean:", threshold_mean(img), "Yen", threshold_yen(img), "Li", threshold_li(img))'''
         valid = True
         if otsu_thresh <= normal_knee:
+            chosen_knee = normal_knee
+        elif otsu_thresh > normal_knee and normal_knee > log_knee:
             chosen_knee = normal_knee
         else:
             chosen_knee = log_knee
         if log_knee <= threshold_triangle(img):
             valid = False
+        if not valid:
+            cut = int(threshold_mean(img))
+            normal_knee = self._testing_knee(img, log_hist=False, sensitivity=0.2, cutoff=cut)
+            log_knee = self._testing_knee(img, log_hist=True, sensitivity=0.2, cutoff=cut)
+            valid = True
+            if normal_knee >= log_knee:
+                chosen_knee = normal_knee
+            else:
+                if otsu_thresh <= normal_knee:
+                    chosen_knee = normal_knee
+                else:
+                    chosen_knee = log_knee
         return chosen_knee, valid
 
     def _testing_knee(self, img, cutoff=1, log_hist=False, sensitivity=1):
@@ -590,10 +611,10 @@ class AutoThresholder:
                 biased_centroid += biased_window_centroid
         #print("Accumulated centroid", biased_centroid)
         #print("Window width weight", window_width_weight)
-        print("Centroids:", centroid_list)
+        '''print("Centroids:", centroid_list)
         print("Window masses:", window_masses)
         print("Window weight", window_width_weight)
-        print("Centroid", biased_centroid / window_width_weight)
+        print("Centroid", biased_centroid / window_width_weight)'''
         if return_other:
             return (biased_centroid / window_width_weight), centroid_list
         return biased_centroid / window_width_weight
@@ -683,8 +704,12 @@ class AutoThresholder:
         return reweighted_vals
 
     def _invert_rescaler(self, values):
-        inverted = [(max(values) - values[inv]) / max(values) for inv in range(len(values))]
-        inverted_dict = {values[inv]: (max(values) - values[inv]) / max(values) for inv in range(len(values))}
+        if max(values) == 0:
+            inverted = np.array([1 for inv in range(len(values))])
+            inverted_dict = {values[inv]: 1 for inv in range(len(values))}
+        else:
+            inverted = np.array([(max(values) - values[inv]) / max(values) for inv in range(len(values))])
+            inverted_dict = {values[inv]: inverted[inv] for inv in range(len(values))}
         return inverted, inverted_dict
 
     def get_threshold_results(self):
@@ -1370,16 +1395,22 @@ class AutoThresholder:
         valid_structs = np.greater(label_counts, smallest_size).astype(int)
         return valid_structs.sum()
 
-    def _ihh_get_best(self, image):
+    def _ihh_get_best(self, image, low_thresh=None, testing=False, test_distrib=False):
         '''
         This is taken from SystemAnalysis. This needs to be adjusted to generate the IHH of an input image
-        and return the intensities plus counts
-        :return:
+        and return the intensities plus counts. If the low_thresh parameter is None then will return a low threshold
+        else if a low threshold is provided then only the IHH details will be retained. Intensities and voxel counts
+        will be in ascending order
+        :param image: Image for which an IHH will be determined
+        :param low_thresh: Optional value. This can be provided so that the low threshold does not need to be calculated
+        again.
+        :return: intens, voxels(, low thresh) The intensities and voxel counts of the image IHH with the low thresh
+        being returned optionally. A low thresh will be returned if not provided in the argument.
         '''
         image = self._grayscale(image)
-        lw_thrsh = self._low_select(img=image)[0]
-        print("Low Threshold", lw_thrsh)
-        print("Intensity Range", list(range(lw_thrsh+1, image.max()+1)))
+        lw_thrsh = low_thresh if low_thresh is not None else self._low_select(img=image)[0]
+        # print("Low Threshold", lw_thrsh)
+        # print("Intensity Range", list(range(lw_thrsh+1, image.max()+1)))
         mask_low = image > lw_thrsh
         labels_low, num_labels = ndi.label(mask_low)
         valid_structures = np.stack([labels_low, image*(mask_low.astype('int'))], axis=-1) # The two labels have been stacked
@@ -1389,31 +1420,201 @@ class AutoThresholder:
         valid_structures = valid_structures[sort_indices]
         label_set, start_index, label_count = np.unique(valid_structures[:, 0], return_index=True, return_counts=True)
         end_index = start_index + label_count
-        max_labels = np.zeros(tuple([len(label_set), 2]))
+        max_labels = np.zeros(tuple([len(label_set), 3]))
         canvas_image = np.zeros_like(labels_low)
         for t in range(len(label_set)):
             max_labels[t, 0] = label_set[t]
             max_labels[t, 1] = valid_structures[slice(start_index[t], end_index[t]), 1].max()
+            max_labels[t, 2] = label_count[t]
             # canvas_image += (labels_low == label_set[t]).astype('int') * valid_structures[slice(start_index[t], end_index[t]), 1].max()
+        #print(max_labels[:, 0])
         value_mapping = max_labels[:, 1]
-        canvas_image = value_mapping[labels_low]
+        intensity_index = max_labels[:, 1].argsort() # intensity index. use [::-1] to reverse
+        voxels_sorted = max_labels[intensity_index, 2][1:].astype(int)
+        intensity_mapping = max_labels[intensity_index, 1][1:].astype(int) # This will map the actual intensity values
+        intensity_values, start_positions, sizes = np.unique(intensity_mapping, return_counts=True, return_index=True)
+        consolidated_intensities = np.zeros_like(intensity_values)
+        for t in range(0, len(start_positions)):
+            index_back = start_positions[t]+sizes[t]
+            consolidated_intensities[t] = voxels_sorted[start_positions[t]:index_back].sum()
 
+
+
+        full_intensity_range = np.arange(0, 256)
+        ihh_range = np.zeros_like(full_intensity_range)
+        ihh_range[intensity_values] = consolidated_intensities
+        ihh_range = np.cumsum(ihh_range[intensity_values.min():][::-1])[::-1]
+        full_intensity_range = full_intensity_range[intensity_values.min():]
+        canvas_image = value_mapping[labels_low]
         def build_ihh():
-            intensities, voxel_count = np.unique(canvas_image, return_counts=True)
-            intensities, voxel_count = intensities[1:], voxel_count[1:]
-            intense_range = int(intensities[-1]-intensities[0]+2)
+            '''This should not be needed. max_labels already stores the volume and maximum intensity per structure
+            where simply a list of tuples by (intensity:[volumes]) could be used. This way as the list is iterated
+            through the list is only as large as the intensities structures are at their highest and all independent
+            volumes are stored!!!''' 
+            unique_intensities, voxel_count = np.unique(canvas_image, return_counts=True)
+            print(unique_intensities)
+            unique_intensities, voxel_count = unique_intensities[1:], voxel_count[1:]
+            print(unique_intensities)
+            intense_range = int(unique_intensities[-1]-unique_intensities[0])+2
+            print("intensity range", intense_range)
+            print("without padding", unique_intensities[-1]-unique_intensities[0])
             all_intense_voxels = np.zeros(tuple([intense_range]))
-            indexing_arr = (intensities - intensities[0]).astype(int)
+            print(all_intense_voxels.shape, unique_intensities.shape)
+            indexing_arr = (unique_intensities - unique_intensities[0]).astype(int)
+            print("Indexing array", indexing_arr)
+            print("Voxel count", voxel_count)
             all_intense_voxels[indexing_arr] = voxel_count
+            #print(all_intense_voxels)
             all_intense_voxels = all_intense_voxels[1:]
-            voxel_accum = np.flip(np.cumsum(np.flip(all_intense_voxels)))
-            intensities = np.linspace(intensities[0], intensities[-1], int(intensities[-1] - intensities[0] + 1))
+            voxel_accum = np.cumsum(np.flip(all_intense_voxels)) #  enclosing np.flip removed to be consistent with other ihh methods
+            intensities = np.flip(np.linspace(unique_intensities[0], unique_intensities[-1], int(unique_intensities[-1] - unique_intensities[0] + 1)))
+            print("Final intensities", intensities.shape)
+            print("Biggest size", voxel_accum.max())
             return intensities, voxel_accum
-        return lw_thrsh, build_ihh()
+
+        def build_ihh_2():
+            '''This is designed to flip the voxel and intensity distributions, then iterate across the
+            reverse with the cumulative sum and then flip it back afterwards. This way even if there are only
+            a few intensity points there will still be a distribution between the low thresh and the maximum intensity.
+            Will use full_intensity_range for the intensities and ihh_range for the voxels.
+            '''
+            max_intens = full_intensity_range.max()
+            bottom_intens = lw_thrsh + 1
+            intens_array = np.linspace(bottom_intens, max_intens, num=max_intens+1-bottom_intens)
+            index_array = full_intensity_range - bottom_intens
+            voxel_canvas = np.zeros_like(intens_array)
+            voxel_canvas[index_array] = ihh_range
+            diminishing_cumulative_counts = np.flip(np.cumsum(np.flip(voxel_canvas))) #the second flip is to reorient it
+            return intens_array, diminishing_cumulative_counts
+
+        #intens, voxels = build_ihh()
+        if test_distrib:
+            intens, voxels = build_ihh_2()
+        else:
+            intens, voxels = full_intensity_range, ihh_range
+
+        if low_thresh is not None:
+            return intens, voxels
+
+        return intens, voxels, lw_thrsh
+
+    def ihh_tests(self):
+        for f in self.file_list:
+            print(f[1])
+            image = io.imread(f[0])
+            self._test_iter_versions(image)
+
+    def _test_iter_versions(self, image):
+        lw_thresh, ihh_res = self._ihh_get_best(image)
+        intens, voxels = ihh_res[0], ihh_res[1]
+        image = self._grayscale(image)
+        intens2, voxels2 = self._efficient_hysteresis_iterative(image, lw_thresh)
+        # print(intens, '*******\n', intens2, "#####################")
+        print(voxels, '*******\n', voxels2)
+        print("Equal length", len(voxels) == len(voxels2), len(voxels))
+        print(voxels[0], voxels2[0])
+        print("Matches", voxels == voxels2)
+
+    def inverted_thresholding_final(self, image, voxel_bias=True, window_option=None, testing_ihh=False):
+        '''
+        This version will include everything and is the final version for complete thresholding
+        :param image:
+        :param voxel_bias:
+        :param window_option:
+        :return: high_thresh, low_thresh
+        '''
+
+        low_thresh, valid_low = self._low_select(image)
+        intens, voxels = self._ihh_get_best(image, low_thresh, test_distrib=True)
+        #I flip in _ihh_get_best for some reason. This will be remedied in future
+        '''intens = np.flip(intens)
+        voxels = np.flip(voxels)'''
+        '''if testing_ihh:
+            print("Checking distribution data:")
+            print(intens.shape, len(intens.shape), intens.shape[0])
+        else:
+            print("Double checking for short distrib")
+            print(intens.shape, len(intens.shape), intens.shape[0])'''
+        if intens.shape[0] == 1:
+            #This is for when there is no distribution of values (perfectly binary image)
+            return intens[0]-1, low_thresh
+        slopes, slope_points = self._get_slope(intens, voxels)
+        mving_slopes = self._moving_average(slopes, window_size=8)
+        inverted_slopes, inversion_record = self._invert_rescaler(mving_slopes)
+        # intens, voxels = intens[:-1], voxels[:-1]
+        voxel_weights = voxels/voxels.max()
+
+        def numerator(span):
+            num = np.multiply(inverted_slopes[:span], intens[:span])
+            if voxel_bias:
+                num = np.multiply(num, voxel_weights[:span])
+            return np.sum(num)
+
+        def denominator(span):
+            denom = inverted_slopes[:span]
+            if voxel_bias:
+                denom = np.multiply(denom, voxel_weights[:span])
+            return np.sum(denom)
+
+        def get_mass(span):
+            if voxel_bias:
+                ratio = np.sum(np.multiply(inverted_slopes[:span], voxel_weights[:span]))
+                if inverted_slopes.shape[0] != voxel_weights.shape[0]:
+                    ratio = ratio/np.sum(np.multiply(inverted_slopes, voxel_weights[:-1]))
+                else:
+                    ratio = ratio / np.sum(np.multiply(inverted_slopes, voxel_weights))
+                return ratio
+
+            ratio = np.sum(inverted_slopes[:span])
+            ratio = ratio/np.sum(inverted_slopes)
+
+            return ratio
+
+        if window_option is None:
+            return numerator(len(inverted_slopes))/len(inverted_slopes), low_thresh
+        elif window_option == 0:
+            return numerator(len(inverted_slopes)) / denominator(len(inverted_slopes)), low_thresh
+        elif window_option == 1:
+            cumulative_centroid = 0
+            cumulative_window_weight = 0
+            #test_list = []
+            for t in range(len(inverted_slopes), 0, -1):
+                window_weight = t/len(inverted_slopes)
+                '''if denominator(t) == 0:
+                    print(intens)
+                    print("Line point", intens[t])
+                    line_range = np.multiply(inverted_slopes, voxel_weights)
+                    print(line_range[:t], line_range[:t].sum())
+                    plt.figure()
+                    sns.lineplot(x=intens, y=inverted_slopes)
+                    plt.axvline(x=intens[t], color='k')
+                    plt.figure()
+                    sns.lineplot(x=intens, y=voxel_weights)
+                    plt.axvline(x=intens[t], color='k')
+                    plt.figure()
+                    sns.lineplot(x=intens[:t], y=line_range[:t])
+                    plt.show()'''
+                if denominator(t) != 0:
+                    cumulative_centroid += (numerator(t)/denominator(t))*window_weight
+                    cumulative_window_weight += window_weight
+                #test_list.append((cumulative_centroid, cumulative_window_weight, cumulative_centroid/cumulative_window_weight))
+            #print("Full list", test_list)
+            cumulative_window_weight = 1 if cumulative_window_weight == 0 else cumulative_window_weight
+            return cumulative_centroid/cumulative_window_weight, low_thresh
+        elif window_option == 2:
+            cumulative_centroid = 0
+            cumulative_window_weight = 0
+            for t in range(len(inverted_slopes), 0, -1):
+                window_weight = get_mass(t)
+                cumulative_centroid += (numerator(t)/denominator(t))*window_weight
+                cumulative_window_weight += window_weight
+            return cumulative_centroid / cumulative_window_weight, low_thresh
+
 
 if __name__ == "__main__":
-    input_path = ["C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\"]
-    # threshold_comparer = AutoThresholder(input_path)
+    input_path = ["C:\\Users\\richy\\Desktop\\SystemAnalysis_files\\Output\\"]
+    threshold_comparer = AutoThresholder(input_path)
+    threshold_comparer.ihh_tests()
     # threshold_comparer.load_threshold_values("C:\\RESEARCH\\Mitophagy_data\\Time_split\\Output\\CompareResults2.json")
     # threshold_comparer.process_images(steepness=50)
     # threshold_comparer.get_threshold_results()
