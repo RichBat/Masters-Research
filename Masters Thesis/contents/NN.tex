@@ -1,0 +1,16 @@
+\section{Neural Network Fundamentals}
+\subsection{Artificial Neural Network Structure}
+The Neural Network structures of interest are \acrfull{fcn} and Convolutional Networks. These structures are composed of multipls components through which they achieve there intended functionality.
+\subsubsection{Fully Connected Networks}
+\acrshort{fcn}s are network structures composed of nodes and weights primarily. These networks contain a minimum of two layers with that being an "input" layer and an "output" layer. Nodes within a layer are connected to all nodes in an adjacent layer but nodes are not connected to other nodes within their own layer. An example of this layout can be seen in Figure \ref{fig:basic_fcn_eg} with an input layer of 3 nodes and an output layer of 2 nodes. These input nodes pass a value to the output nodes such that each output node receives a value from all of the input nodes. The weights of these connections adjust the respective contributions of each input node to the output node. Thus every node can potentially receive multiple inputs but provides only one output although said output can be passed along multiple connections. If there were \textit{M} nodes in the input layer and \textit{N} nodes in the output layer such that \(M, N \in \mathbb{R}\) then there will be \(M \times N\) weights. With this network the weights would be denoted with \(w_m,n\) \textit{where} \(m \in M, n \in N\). These weights are not fixed though and during the process of training they are adjusted accordingly to maximise the accuracy of the model, this adjustment of the individual weights is one of the properties of \acrshort{fcn}s that allows them to capture non-linearity's in data. The other primary contributor is the node function which is referred to as the activation function. These functions can range from simple such as taking the node input value as the output to applying the sigmoid function to the node input to determine the node output. These functions determine how the nodes convey the received information and is the other means through which the network can represent non-linearity's. These functions will be discussed in a further section.
+\begin{figure}
+    \centering
+    \input{figs/FCN.tikz}
+    \caption{Fully Connected Network}
+    \small
+    Fully Connected Network with an Input layer with 3 nodes and an Output layer with 2 nodes.
+    \label{fig:basic_fcn_eg}
+\end{figure}
+%Creating FCN diagram
+%Source for FCN: https://www.oreilly.com/library/view/tensorflow-for-deep/9781491980446/ch04.html
+%This is to discuss common but slightly more complex layers like Convolutional layers and RNN Concepts
