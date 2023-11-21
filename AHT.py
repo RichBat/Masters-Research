@@ -1,18 +1,11 @@
-import json
-
-import numpy
 import numpy as np
-import matplotlib.pyplot as plt
-import math
 from skimage.exposure import histogram
-from skimage import data, io
+from skimage import io
 import pandas as pd
-from os import listdir, makedirs
-from os.path import isfile, join, exists
-from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_li, threshold_yen, threshold_triangle, threshold_mean, gaussian, threshold_minimum
-import tifffile
+from os import listdir
+from os.path import isfile, join
+from skimage.filters import apply_hysteresis_threshold, threshold_otsu, threshold_triangle, threshold_mean
 from knee_locator import KneeLocator
-import time
 from scipy import ndimage as ndi
 
 class AutoHystThreshold:
