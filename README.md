@@ -8,3 +8,13 @@ To load the AHT thresholder, download the AHT.py and the knee_locator.py files.
 3) The output binarised files will be saved as 'AHT_' + the image file name.
 
 4) An output path can be provided to save the binarised image to a specific location.
+
+# Adding Poisson and Gaussian noise
+To add Poison and Gaussian noise run the script called 'adding_noise.py' wherein:
+
+1) Provide the file source, the destination of the noise addition images, the Poisson lambdarange, and the Gaussian sigma range.
+
+2) To generate images like those used in the metric analysis of this research, use binarized images in the file source.
+
+# Evaluating metrics
+WIP
